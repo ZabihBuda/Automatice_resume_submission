@@ -1,0 +1,58 @@
+# Job boards to scan every day. Add any company that hosts its careers page on
+# Greenhouse, Lever or Ashby. Find the token in the careers URL:
+#   job-boards.greenhouse.io/<token>   boards.greenhouse.io/<token>
+#   jobs.lever.co/<token>
+#   jobs.ashbyhq.com/<token>
+# A board that has moved or closed just prints a warning and is skipped.
+companies:
+  # Greenhouse
+  - {ats: greenhouse, token: airbnb, name: Airbnb}
+  - {ats: greenhouse, token: stripe, name: Stripe}
+  - {ats: greenhouse, token: databricks, name: Databricks}
+  - {ats: greenhouse, token: robinhood, name: Robinhood}
+  - {ats: greenhouse, token: coinbase, name: Coinbase}
+  - {ats: greenhouse, token: lyft, name: Lyft}
+  - {ats: greenhouse, token: figma, name: Figma}
+  - {ats: greenhouse, token: discord, name: Discord}
+  - {ats: greenhouse, token: pinterest, name: Pinterest}
+  - {ats: greenhouse, token: reddit, name: Reddit}
+  - {ats: greenhouse, token: dropbox, name: Dropbox}
+  - {ats: greenhouse, token: affirm, name: Affirm}
+  - {ats: greenhouse, token: instacart, name: Instacart}
+  - {ats: greenhouse, token: doordashusa, name: DoorDash}
+  - {ats: greenhouse, token: gusto, name: Gusto}
+  - {ats: greenhouse, token: datadog, name: Datadog}
+  - {ats: greenhouse, token: mongodb, name: MongoDB}
+  - {ats: greenhouse, token: cloudflare, name: Cloudflare}
+  - {ats: greenhouse, token: twilio, name: Twilio}
+  - {ats: greenhouse, token: squarespace, name: Squarespace}
+  - {ats: greenhouse, token: etsy, name: Etsy}
+  - {ats: greenhouse, token: duolingo, name: Duolingo}
+  - {ats: greenhouse, token: nerdwallet, name: NerdWallet}
+  - {ats: greenhouse, token: roblox, name: Roblox}
+  - {ats: greenhouse, token: brex, name: Brex}
+  - {ats: greenhouse, token: airtable, name: Airtable}
+  - {ats: greenhouse, token: asana, name: Asana}
+  - {ats: greenhouse, token: scaleai, name: Scale AI}
+  - {ats: greenhouse, token: anthropic, name: Anthropic}
+  - {ats: greenhouse, token: elastic, name: Elastic}
+  - {ats: greenhouse, token: gitlab, name: GitLab}
+  - {ats: greenhouse, token: toast, name: Toast}
+  - {ats: greenhouse, token: chime, name: Chime}
+  - {ats: greenhouse, token: grammarly, name: Grammarly}
+  - {ats: greenhouse, token: samsara, name: Samsara}
+  # Lever
+  - {ats: lever, token: palantir, name: Palantir}
+  - {ats: lever, token: spotify, name: Spotify}
+  - {ats: lever, token: plaid, name: Plaid}
+  - {ats: lever, token: zoox, name: Zoox}
+  - {ats: lever, token: whoop, name: WHOOP}
+  # Ashby
+  - {ats: ashby, token: openai, name: OpenAI}
+  - {ats: ashby, token: ramp, name: Ramp}
+  - {ats: ashby, token: notion, name: Notion}
+  - {ats: ashby, token: linear, name: Linear}
+  - {ats: ashby, token: cohere, name: Cohere}
+  - {ats: ashby, token: replit, name: Replit}
+  - {ats: ashby, token: vanta, name: Vanta}
+  - {ats: ashby, token: deel, name: Deel}

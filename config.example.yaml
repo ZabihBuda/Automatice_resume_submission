@@ -1,0 +1,61 @@
+# Copy to config.yaml and edit. config.yaml is git-ignored because it holds your contact details.
+
+profile:
+  first_name: Zabihullah
+  last_name: Zabih
+  email: Zabihullah.buda@gmail.com
+  phone: "(613) 291-8030"
+  linkedin: https://www.linkedin.com/in/zabih-ai/
+  github: https://github.com/ZabihBuda
+  website: ""
+  current_company: Outlier AI
+  location: Toronto, ON, Canada
+  city: Toronto
+  resume_path: ~/Documents/ZABIHULLAH_ZABIH_Resume_DS.pdf
+
+prefs:
+  daily_limit: 30          # max applications per day
+  max_per_company: 3       # spread applications across companies
+  us_only: true
+  remote_only: false
+  prefer_remote: false
+  # Jobs whose location matches one of these (regex, case-insensitive) get +15 and rank first.
+  preferred_locations:
+    - syracuse
+    - '(?<!west )virginia'
+    - ',\s*va\b'
+  preferred_location_bonus: 15
+
+  # A title must contain one of these...
+  title_include:
+    - data scientist
+    - machine learning
+    - ml engineer
+    - applied scientist
+    - ai engineer
+    - analytics engineer
+    - nlp
+    - llm
+  # ...and none of these (whole words).
+  title_exclude:
+    - intern
+    - internship
+    - director
+    - principal
+    - vp
+    - head of
+    - manager
+    - phd
+    - new grad
+  # Extra points when the title has one of these.
+  title_bonus: [senior, data scientist, machine learning, nlp, llm, genai]
+
+  # Skills from your resume. Jobs that mention more of them rank higher.
+  skills: [python, sql, pyspark, spark, pandas, databricks, etl, machine learning, nlp, llm,
+           llms, rag, retrieval, generative ai, genai, predictive modeling, feature engineering,
+           azure, aws, vector database, tableau, power bi, dashboards, a/b testing, statistics,
+           data pipelines, airflow, dbt, langchain, transformers, pytorch, scikit-learn]
+
+companies_file: companies.yaml
+db_path: applications.db
+browser_profile_dir: ~/.autoapply-browser
