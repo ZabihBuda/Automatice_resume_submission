@@ -50,6 +50,10 @@ def test_greenhouse_parse_and_filter(monkeypatch):
     assert kept["4"] is None   # citizenship / clearance
     assert kept["5"]["warnings"] == ["unable to sponsor"]
     assert kept["6"] is None   # not a DS title
+    from autoapply.filters import title_matches
+    assert not title_matches("Senior Staff Machine Learning Engineer", prefs())
+    assert not title_matches("Staff Data Scientist", prefs())
+    assert title_matches("Senior Data Scientist", prefs())
 
 
 def test_location_rules():

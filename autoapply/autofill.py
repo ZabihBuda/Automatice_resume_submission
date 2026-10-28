@@ -25,6 +25,7 @@ import yaml
 
 from .apply import form_url, prefill
 from .db import Store
+from .filters import title_matches
 
 # Collects every unanswered question on the page. Each element gets a data-aa
 # attribute so Python can find it again.
@@ -360,6 +361,11 @@ def run(store: Store, cfg: dict, limit: int, dry_run: bool, headless: bool, here
     left = max(limit - store.applied_today(), 0)
     rows, seen = [], set()
     for r in store.by_status("approved", "queued"):
+        if cfg.get("prefs") and not title_matches(html.unescape(r["title"]), cfg["prefs"]):
+            # Queued before a title filter was added to config.yaml (e.g. "staff").
+            if not dry_run:
+                store.set_status(r["key"], "skipped", "title no longer matches title_include/title_exclude")
+            continue
         if r["dedupe_key"] in seen:  # same title at the same company, e.g. one posting per city
             if not dry_run:
                 store.set_status(r["key"], "skipped", "duplicate of another queued posting")
