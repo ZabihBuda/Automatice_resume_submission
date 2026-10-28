@@ -1,17 +1,17 @@
-# Copy to config.yaml and edit. config.yaml is git-ignored because it holds your contact details.
+# Copy to config.yaml and fill in your details. config.yaml is git-ignored because it holds your contact details.
 
 profile:
-  first_name: Zabihullah
-  last_name: Zabih
-  email: Zabihullah.buda@gmail.com
-  phone: "(613) 291-8030"
-  linkedin: https://www.linkedin.com/in/zabih-ai/
-  github: https://github.com/ZabihBuda
+  first_name: Your
+  last_name: Name
+  email: you@example.com
+  phone: "(555) 555-0100"
+  linkedin: https://www.linkedin.com/in/your-profile/
+  github: https://github.com/your-username
   website: ""
-  current_company: Outlier AI
-  location: Toronto, ON, Canada
-  city: Toronto
-  resume_path: ~/Documents/ZABIHULLAH_ZABIH_Resume_DS.pdf
+  current_company: ""
+  location: "City, State"
+  city: ""
+  resume_path: ~/Documents/resume.pdf
 
 prefs:
   daily_limit: 30          # max applications per day

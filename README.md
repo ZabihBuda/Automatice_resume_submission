@@ -1,8 +1,24 @@
-# Daily data science job auto-apply
+# Automatic Resume Submission
 
-Finds up to 30 new US data science / ML roles a day, ranks them against your resume,
-lets you approve them in a quick review, then opens each application in a browser with
-your details and resume already filled in. You click Submit.
+A personal job-search assistant for data science and machine learning roles at US
+companies. Every day it finds up to 30 new openings that fit your profile, ranks them
+against the skills on your resume, and lines them up for a quick review. For each job you
+approve, it opens the application form in a browser with your details and resume already
+filled in, so applying takes about a minute instead of ten.
+
+**What it does**
+
+- Scans the public job boards of about 50 US tech companies (Greenhouse, Lever, Ashby)
+- Keeps data scientist, ML engineer, applied scientist, NLP and LLM roles in the US or remote
+- Drops roles that need US citizenship or a security clearance, and flags "no sponsorship"
+  postings (useful for TN visa holders)
+- Ranks matches by resume keyword overlap, with a boost for preferred cities
+- Never queues the same job twice, and caps applications per company
+- Keeps a full log of every application in a local SQLite database
+- Leaves the final Submit click to you, so no account or application gets flagged
+
+**Built with** Python, SQLite, Playwright, and the public Greenhouse, Lever and Ashby
+job board APIs.
 
 ## How it works
 
