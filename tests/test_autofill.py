@@ -50,6 +50,10 @@ def test_refuses_unfinished_answers(tmp_path):
     p.write_text(open(os.path.join(HERE, "answers.example.yaml")).read())
     with pytest.raises(SystemExit, match="CHANGE_ME"):
         autofill.load_answers(str(p))
+    # Filled in and confirmed: passes, even though the comments still mention CHANGE_ME.
+    text = p.read_text().replace("answer: CHANGE_ME", "answer: Yes").replace("confirmed: false", "confirmed: True")
+    p.write_text(text)
+    assert autofill.load_answers(str(p))["confirmed"] is True
 
 
 @pytest.fixture(scope="module")
