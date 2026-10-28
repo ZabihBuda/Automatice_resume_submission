@@ -7,6 +7,7 @@ submitted without you.
 from __future__ import annotations
 
 import os
+from collections import deque
 
 from .db import Store
 
@@ -102,28 +103,53 @@ def run(store: Store, cfg: dict, limit: int):
         print(f"Nothing to do: {len(store.by_status('approved'))} approved, {done_today} applied today (cap {limit}).")
         return
 
+    tabs_at_once = max(int(cfg.get("tabs_at_once", 5)), 1)
+    print(f"{len(rows)} approved applications. Opening {min(tabs_at_once, len(rows))} at a time in browser tabs.")
+    print("After you click Submit on a tab, come back to THIS window and type a, s or f.\n")
+
     with sync_playwright() as pw:
         # A persistent profile keeps cookies, so sites that remember you stay remembered.
         ctx = pw.chromium.launch_persistent_context(
             os.path.expanduser(cfg.get("browser_profile_dir", "~/.autoapply-browser")), headless=False
         )
-        page = ctx.new_page()
-        for i, r in enumerate(rows, 1):
-            url = form_url(r)
-            print(f"\n[{i}/{len(rows)}] {r['company']} | {r['title']} | {r['location']}\n    {url}")
+        pending, open_tabs = deque(rows), deque()
+
+        def top_up():
+            while pending and len(open_tabs) < tabs_at_once:
+                r = pending.popleft()
+                page = ctx.new_page()
+                try:
+                    page.goto(form_url(r), wait_until="domcontentloaded", timeout=45000)
+                    page.wait_for_timeout(2500)
+                    filled = prefill(page, r["source"], cfg["profile"], resume)
+                    note = f"pre-filled: {', '.join(filled) or 'nothing (fill it by hand)'}"
+                except Exception as e:
+                    note = f"could not load or fill: {e}"
+                open_tabs.append((page, r, note))
+
+        top_up()
+        for blank in [p for p in ctx.pages if p.url == "about:blank"]:
+            blank.close()
+        i = 0
+        while open_tabs:
+            page, r, note = open_tabs.popleft()
+            i += 1
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=45000)
-                page.wait_for_timeout(2500)
-                filled = prefill(page, r["source"], cfg["profile"], resume)
-                print(f"    pre-filled: {', '.join(filled) or 'nothing (fill it by hand)'}")
-            except Exception as e:
-                print(f"    could not load or fill: {e}")
-            print("    Check the form, answer the remaining questions, and click Submit in the browser.")
+                page.bring_to_front()
+            except Exception:
+                pass
+            print(f"\a\n[{i}/{len(rows)}] {r['company']} | {r['title']} | {r['location']}\n    {form_url(r)}\n    {note}")
+            print("    This tab is now in front. Answer the remaining questions and click Submit.")
             ans = input("    Then type  a = applied,  s = skip,  f = failed,  q = quit  > ").strip().lower()
             if ans == "q":
                 break
             status = {"a": "applied", "s": "skipped", "f": "failed"}.get(ans)
             if status:
                 store.set_status(r["key"], status)
+            try:
+                page.close()
+            except Exception:
+                pass
+            top_up()
         ctx.close()
     print(f"\nApplied today: {store.applied_today()}")

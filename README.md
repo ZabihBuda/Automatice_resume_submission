@@ -43,7 +43,8 @@ write queue/<date>.html                           status saved to applications.d
 4. **Dedupe.** Every job ever seen is stored in `applications.db` (SQLite). A job is never
    queued twice, and a repost with the same title at the same company is skipped.
 5. **Review step.** Nothing reaches an employer until you approve it with `review`.
-6. **Applying.** Playwright opens a real Chrome window, fills name, email, phone, LinkedIn,
+6. **Applying.** Playwright opens a Chrome window with up to 5 application tabs at a time
+   (`tabs_at_once` in config), fills name, email, phone, LinkedIn,
    GitHub and uploads your resume, then waits. Custom questions (work authorization,
    salary, "why us") are left for you, because wrong automated answers there get
    applications rejected. You click Submit, then press `a` in the terminal to log it.
