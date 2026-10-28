@@ -2,9 +2,10 @@
 
 A personal job-search assistant for data science and machine learning roles at US
 companies. Every day it finds up to 30 new openings that fit your profile, ranks them
-against the skills on your resume, and lines them up for a quick review. For each job you
-approve, it opens the application form in a browser with your details and resume already
-filled in, so applying takes about a minute instead of ten.
+against the skills on your resume, and applies to them for you: it fills in your details,
+uploads your resume, answers the form's questions from your answers file (and, for
+free-text questions, with Claude using your resume), clicks Submit, and checks that the
+company confirmed it.
 
 **What it does**
 
@@ -15,18 +16,19 @@ filled in, so applying takes about a minute instead of ten.
 - Ranks matches by resume keyword overlap, with a boost for preferred cities
 - Never queues the same job twice, and caps applications per company
 - Keeps a full log of every application in a local SQLite database
-- Leaves the final Submit click to you, so no account or application gets flagged
+- Skips, rather than guesses, any form with a question it can't answer, a CAPTCHA, or an
+  email security code, and tells you which ones need you
 
-**Built with** Python, SQLite, Playwright, and the public Greenhouse, Lever and Ashby
-job board APIs.
+**Built with** Python, SQLite, Playwright, the Claude API, and the public Greenhouse,
+Lever and Ashby job board APIs.
 
 ## How it works
 
 ```
-daily (scheduled)        review (you, ~5 min)     apply (you, ~1 min per job)
-fetch ~50 job boards  →  y / n per job        →   browser opens each form, pre-filled
-filter + score + dedupe                           you answer custom questions, click Submit
-write queue/<date>.html                           status saved to applications.db
+run (once a day)
+fetch ~50 job boards → filter + score + dedupe → top 30
+  → for each job: fill details + resume → answer questions → Submit → check for "thank you"
+  → applied / needs_input / captcha / unconfirmed, saved to applications.db + a screenshot
 ```
 
 1. **Job sources.** Public Greenhouse, Lever and Ashby job board APIs (see `companies.yaml`).
@@ -42,49 +44,78 @@ write queue/<date>.html                           status saved to applications.d
    in config). Any other US city or remote still counts. At most 3 jobs per company per day.
 4. **Dedupe.** Every job ever seen is stored in `applications.db` (SQLite). A job is never
    queued twice, and a repost with the same title at the same company is skipped.
-5. **Review step.** Nothing reaches an employer until you approve it with `review`.
-6. **Applying.** Playwright opens a Chrome window with up to 5 application tabs at a time
-   (`tabs_at_once` in config), fills name, email, phone, LinkedIn,
-   GitHub and uploads your resume, then waits. Custom questions (work authorization,
-   salary, "why us") are left for you, because wrong automated answers there get
-   applications rejected. You click Submit, then press `a` in the terminal to log it.
-7. **Log.** `python -m autoapply log` lists every application with its date.
+5. **Answering questions.** Every question on the form is matched against the rules in
+   `answers.yaml` (work authorization, sponsorship, relocation, start date, EEO, and so on).
+   Anything left over goes to Claude in one request per application, with your resume, the
+   job description and the `facts` in `answers.yaml`. Claude is told to answer only from
+   those and to mark a question "not confident" rather than guess.
+6. **Submitting.** If every required question has an answer, the tool clicks Submit and
+   waits for the confirmation page. It skips the job, without submitting, when a required
+   question is still unanswered (`needs_input`), or a CAPTCHA or email code appears
+   (`captcha`). A screenshot of every form is saved in `logs/<date>/`.
+7. **Log.** `python3 -m autoapply log` lists every application with its date and status.
 
-## Setup (once)
+Prefer to check each one yourself? `daily`, `review` and `apply` still work as before:
+the browser opens each approved form pre-filled and you click Submit.
+
+## Setup (once, Mac)
 
 ```bash
-cd job-autoapply
-python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+cd ~/Documents/Automatice_resume_submission
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
-cp config.example.yaml config.yaml                     # then check resume_path and preferences
+cp config.example.yaml config.yaml      # your contact details and resume_path
+cp answers.example.yaml answers.yaml    # your answers to common questions
+open -e answers.yaml                    # replace each CHANGE_ME, then set confirmed: true
 ```
+
+For free-text questions ("Why do you want to work here?"), get an API key at
+console.anthropic.com and add it to your shell once:
+
+```bash
+echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.zshrc && source ~/.zshrc
+```
+
+Without a key the tool still runs, but skips every form that has a required free-text question.
 
 ## Every day
 
 ```bash
-python -m autoapply daily --open   # fetch + build today's queue, opens the report
-python -m autoapply review         # y / n each job
-python -m autoapply apply          # fill and submit approved ones (stops at 30 per day)
-python -m autoapply log            # history
+cd ~/Documents/Automatice_resume_submission && source .venv/bin/activate
+python3 -m autoapply run            # find today's jobs and apply to up to 30
+python3 -m autoapply log            # what was submitted
 ```
 
-### Run `daily` automatically at 8am
+Try `python3 -m autoapply run --dry-run` first: it fills the forms but doesn't submit,
+so you can check the screenshots in `logs/` before anything goes to an employer.
 
-- **Mac/Linux:** `crontab -e`, then add
-  `0 8 * * * cd /path/to/job-autoapply && .venv/bin/python -m autoapply daily >> daily.log 2>&1`
-- **Windows:** Task Scheduler → Create Basic Task → Daily 8:00 → Program
-  `C:\path\to\job-autoapply\.venv\Scripts\python.exe`, arguments `-m autoapply daily`,
-  start in `C:\path\to\job-autoapply`.
+When jobs are skipped with `needs_input`, the output lists the questions. Add a rule for
+each one to `answers.yaml`, then run `python3 -m autoapply retry` and `python3 -m autoapply auto`.
+
+### Run it automatically every morning
+
+`crontab -e`, then add (keep the Mac awake and logged in at that time):
+
+```
+0 8 * * * cd ~/Documents/Automatice_resume_submission && .venv/bin/python -m autoapply run >> run.log 2>&1
+```
+
+Cron doesn't read `~/.zshrc`, so put `ANTHROPIC_API_KEY=sk-ant-... ` at the start of that command.
 
 ## Risks and why the tool is built this way
 
 - **LinkedIn and Indeed are not used.** Both ban automated applying in their terms and
   actively detect it. Accounts get restricted or permanently banned, and a banned LinkedIn
   account hurts a job search far more than 30 applications help it.
-- **Fully unattended submission is not built in.** Many forms have CAPTCHAs, and
-  questions like "Will you require sponsorship?" need a correct, human answer. A wrong
-  auto-answer can quietly disqualify you. The review + click-Submit step keeps that safe.
+- **CAPTCHAs are never bypassed.** Some company forms show one, and some Greenhouse forms
+  email you a security code. Those jobs are skipped and listed so you can do them by hand.
+- **Answers go out as written.** The work-authorization and sponsorship answers in
+  `answers.yaml` are yours to decide, and the tool won't run until you've filled them in
+  and set `confirmed: true`. Claude's free-text answers are saved in `applications.db` and
+  shown in the screenshots, so you can check what was sent.
+- **Claude API cost.** One request per application that has questions the rules don't
+  cover: roughly a few cents each, so about $1 to $2 a day at 30 applications.
 - **Quality vs. volume.** 30 a day is about 600 a month. Recruiters at the same company
   can see every application you send, so the 3-per-company cap stays on by default.
 
