@@ -77,7 +77,9 @@ console.anthropic.com and add it to your shell once:
 echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.zshrc && source ~/.zshrc
 ```
 
-Without a key the tool still runs, but skips every form that has a required free-text question.
+Without a key the tool still runs. Free-text questions get the template answers in
+`answers.yaml` (the "Why do you want to work here?" and "cover letter" rules, with the company
+and job title filled in), and any other required question it can't answer is skipped and listed.
 
 ## Every day
 
@@ -114,8 +116,10 @@ Cron doesn't read `~/.zshrc`, so put `ANTHROPIC_API_KEY=sk-ant-... ` at the star
   `answers.yaml` are yours to decide, and the tool won't run until you've filled them in
   and set `confirmed: true`. Claude's free-text answers are saved in `applications.db` and
   shown in the screenshots, so you can check what was sent.
-- **Claude API cost.** One request per application that has questions the rules don't
-  cover: roughly a few cents each, so about $1 to $2 a day at 30 applications.
+- **Claude API cost.** One request per application, and only when the form has a question
+  the rules don't cover. With the default `claude-haiku-5-5` at `low` effort that's about
+  $0.001 each, or around 3 cents a day ($1 a month) for 30 applications. Leave
+  `ANTHROPIC_API_KEY` unset and it costs nothing (template answers only).
 - **Quality vs. volume.** 30 a day is about 600 a month. Recruiters at the same company
   can see every application you send, so the 3-per-company cap stays on by default.
 

@@ -34,6 +34,15 @@ def test_rules():
     assert autofill.rule_answer("Will you require visa sponsorship?", a) == "No"
     assert autofill.rule_answer("Veteran status", a) == "I don't wish to answer"
     assert autofill.rule_answer("Do you have open source contributions?", a) is None
+    why = autofill.rule_answer("Why do you want to work at Acme? *", a, {"company": "Acme", "title": "Data Scientist"})
+    assert "Data Scientist role at Acme" in why and "{" not in why
+    assert autofill.rule_answer("Why do you want to work at Acme?", a, use_llm=True) is None
+
+
+def test_no_key_uses_templates(page, monkeypatch):
+    status, log = run_form(page, monkeypatch, "greenhouse", use_llm=False)
+    assert status == "applied", log
+    assert "role at Acme" in log["answers"]["Why do you want to work at Acme? *"]
 
 
 def test_refuses_unfinished_answers(tmp_path):
@@ -56,13 +65,13 @@ def page():
         browser.close()
 
 
-def run_form(page, monkeypatch, name, ai=None, dry_run=False):
+def run_form(page, monkeypatch, name, ai=None, dry_run=False, use_llm=True):
     monkeypatch.setattr(autofill, "form_url", lambda r: f"file://{FORMS}/{name}.html")
     monkeypatch.setattr(autofill, "ask_claude", lambda qs, *a: {q["id"]: ai(q) for q in qs if ai and ai(q)})
     row = {"source": "greenhouse", "key": "greenhouse:acme:1", "job_id": "1"}
     job = {"title": "Data Scientist", "company": "Acme", "location": "NY", "description": ""}
     resume = os.path.join(FORMS, "thanks.html")  # any file works for the upload field
-    return autofill.apply_one(page, row, job, {"profile": PROFILE}, answers(), resume, "resume", True, dry_run)
+    return autofill.apply_one(page, row, job, {"profile": PROFILE}, answers(), resume, "resume", use_llm, dry_run)
 
 
 def why(q):

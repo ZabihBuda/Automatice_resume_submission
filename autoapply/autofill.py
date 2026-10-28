@@ -110,10 +110,16 @@ def load_answers(path: str) -> dict:
     return a
 
 
-def rule_answer(label: str, answers: dict) -> str | None:
+def rule_answer(label: str, answers: dict, job: dict | None = None, use_llm: bool = False) -> str | None:
+    """First matching rule's answer. {company} and {title} are filled in from the job."""
     for r in answers.get("rules", []):
+        if use_llm and r.get("only_without_claude"):
+            continue
         if any(re.search(p, label, re.I) for p in r["match"]):
-            return str(r["answer"])
+            text = str(r["answer"])
+            if job:
+                text = text.replace("{company}", job.get("company", "")).replace("{title}", job.get("title", ""))
+            return text
     return None
 
 
@@ -138,6 +144,11 @@ def resume_text(path: str) -> str:
     return "\n".join(p.extract_text() or "" for p in PdfReader(path).pages)
 
 
+# Cheapest model: about $0.001 per application. claude-sonnet-5-5 or claude-opus-5-5 write
+# better free-text answers at roughly 10x and 30x the cost.
+DEFAULT_MODEL = "claude-haiku-5-5"
+
+
 def ask_claude(questions: list[dict], job: dict, resume: str, answers: dict) -> dict:
     """One call per application. Returns {question_id: answer} for the ones Claude is confident about."""
     import anthropic
@@ -156,7 +167,7 @@ def ask_claude(questions: list[dict], job: dict, resume: str, answers: dict) -> 
         f"RESUME:\n{resume}"
     )
     user = (f"JOB: {job['title']} at {job['company']} ({job['location']})\n\n"
-            f"JOB DESCRIPTION (excerpt):\n{(job.get('description') or '')[:6000]}\n\n"
+            f"JOB DESCRIPTION (excerpt):\n{(job.get('description') or '')[:3000]}\n\n"
             f"QUESTIONS:\n{json.dumps(qs, indent=1)}")
     schema = {
         "type": "object",
@@ -166,15 +177,20 @@ def ask_claude(questions: list[dict], job: dict, resume: str, answers: dict) -> 
             "required": ["id", "answer", "confident"], "additionalProperties": False}}},
         "required": ["answers"], "additionalProperties": False,
     }
+    model = answers.get("claude_model", DEFAULT_MODEL)
+    kwargs = {}
+    if not model.startswith("claude-haiku"):
+        # Larger models can re-run a declined request on another model; Haiku has no fallback.
+        kwargs = {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
     client = anthropic.Anthropic()
     resp = client.beta.messages.create(
-        model=answers.get("claude_model", "claude-opus-5-5"),
-        max_tokens=16000,
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",
-        output_config={"effort": "medium", "format": {"type": "json_schema", "schema": schema}},
+        model=model,
+        max_tokens=4000,  # caps the cost of any one application
+        output_config={"effort": answers.get("claude_effort", "low"),
+                       "format": {"type": "json_schema", "schema": schema}},
         system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": user}],
+        **kwargs,
     )
     if resp.stop_reason != "end_turn":
         return {}
@@ -288,7 +304,7 @@ def apply_one(page, row, job: dict, cfg: dict, answers: dict, resume_pdf: str, r
             if set_field(page, q, q["options"][0]["text"]):
                 log["answers"][q["label"]] = "checked"
             continue
-        ans = rule_answer(q["label"], answers)
+        ans = rule_answer(q["label"], answers, job, use_llm)
         if ans is not None and set_field(page, q, ans):
             log["answers"][q["label"]] = ans
         else:

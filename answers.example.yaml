@@ -49,6 +49,23 @@ rules:
   - match: ["pronoun"]
     answer: "Prefer not to say"
 
+  # --- Free-text questions. `only_without_claude: true` means these are used only when no
+  # ANTHROPIC_API_KEY is set; with a key, Claude writes a tailored answer for each job instead.
+  # {company} and {title} are replaced with the job's company and title.
+  - only_without_claude: true
+    match: ["why (do you want|would you like|are you interested|are you applying)", "what (interests|excites|draws) you"]
+    answer: >-
+      I'm excited about the {title} role at {company} because it matches what I do best: building
+      LLM, NLP and retrieval-augmented analytics that make business decisions faster. At Deloitte
+      and Outlier AI I built production RAG and document-intelligence pipelines on Azure that cut
+      review and reporting time by 30-40%, and I'd like to bring that same impact to {company}.
+  - only_without_claude: true
+    match: ["cover letter", "anything else", "additional information", "tell us about yourself"]
+    answer: >-
+      I'm a data scientist and ML engineer with experience building LLM-powered analytics, NLP and
+      RAG systems in Python, SQL, Spark, Azure and AWS. I'm a Canadian citizen eligible for TN work
+      status, open to relocating, and would be glad to discuss how I can help {company}.
+
   # --- Voluntary US EEO questions. "Decline" answers are always allowed. ---
   - match: ["gender", "sex\\b"]
     answer: "Decline to self-identify"
@@ -73,4 +90,5 @@ facts:
   highest_degree: Master of Management in Artificial Intelligence, Schulich School of Business (2024)
 
 use_claude: true              # needs ANTHROPIC_API_KEY set in your environment
-claude_model: claude-opus-5-5
+claude_model: claude-haiku-5-5   # cheapest: about 3 cents a day for 30 applications
+claude_effort: low                # low keeps answers short and cheap
