@@ -77,7 +77,9 @@ console.anthropic.com and add it to your shell once:
 echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.zshrc && source ~/.zshrc
 ```
 
-Without a key the tool still runs, but skips every form that has a required free-text question.
+Without a key the tool still runs. Free-text questions get the template answers in
+`answers.yaml` (the "Why do you want to work here?" and "cover letter" rules, with the company
+and job title filled in), and any other required question it can't answer is skipped and listed.
 
 ## Every day
 

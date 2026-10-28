@@ -110,10 +110,16 @@ def load_answers(path: str) -> dict:
     return a
 
 
-def rule_answer(label: str, answers: dict) -> str | None:
+def rule_answer(label: str, answers: dict, job: dict | None = None, use_llm: bool = False) -> str | None:
+    """First matching rule's answer. {company} and {title} are filled in from the job."""
     for r in answers.get("rules", []):
+        if use_llm and r.get("only_without_claude"):
+            continue
         if any(re.search(p, label, re.I) for p in r["match"]):
-            return str(r["answer"])
+            text = str(r["answer"])
+            if job:
+                text = text.replace("{company}", job.get("company", "")).replace("{title}", job.get("title", ""))
+            return text
     return None
 
 
@@ -288,7 +294,7 @@ def apply_one(page, row, job: dict, cfg: dict, answers: dict, resume_pdf: str, r
             if set_field(page, q, q["options"][0]["text"]):
                 log["answers"][q["label"]] = "checked"
             continue
-        ans = rule_answer(q["label"], answers)
+        ans = rule_answer(q["label"], answers, job, use_llm)
         if ans is not None and set_field(page, q, ans):
             log["answers"][q["label"]] = ans
         else:
