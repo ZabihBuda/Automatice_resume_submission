@@ -63,7 +63,16 @@ class Store:
 
     def pick_for_queue(self, limit: int, max_per_company: int) -> list[sqlite3.Row]:
         rows = self.conn.execute("SELECT * FROM jobs WHERE status='new' ORDER BY score DESC").fetchall()
-        picked, per_co, seen = [], {}, set()
+        # Jobs already waiting or applied to count too, so reposts and per-city copies of the
+        # same role aren't queued again on later days.
+        active = self.conn.execute(
+            "SELECT company, dedupe_key, status FROM jobs WHERE status IN ('queued','approved','applied','unconfirmed')"
+        ).fetchall()
+        picked, per_co = [], {}
+        seen = {a["dedupe_key"] for a in active}
+        for a in active:
+            if a["status"] in ("queued", "approved"):
+                per_co[a["company"]] = per_co.get(a["company"], 0) + 1
         for r in rows:
             if per_co.get(r["company"], 0) >= max_per_company or r["dedupe_key"] in seen:
                 continue

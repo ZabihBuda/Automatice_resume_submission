@@ -49,7 +49,7 @@ def fetch_greenhouse(token: str, name: str | None = None) -> list[Job]:
         loc = (j.get("location") or {}).get("name", "")
         jobs.append(Job(
             source="greenhouse", company=name or token, job_id=str(j["id"]),
-            title=j.get("title", ""), location=loc,
+            title=html.unescape(j.get("title", "")), location=loc,
             url=j.get("absolute_url", ""), apply_url=j.get("absolute_url", ""),
             description=_strip_html(j.get("content", "")),
             remote="remote" in loc.lower(), posted_at=j.get("updated_at", ""),
@@ -68,7 +68,7 @@ def fetch_lever(token: str, name: str | None = None) -> list[Job]:
         workplace = (j.get("workplaceType") or "").lower()
         jobs.append(Job(
             source="lever", company=name or token, job_id=j["id"],
-            title=j.get("text", ""), location=loc,
+            title=html.unescape(j.get("text", "")), location=loc,
             url=j.get("hostedUrl", ""), apply_url=j.get("applyUrl", ""),
             description=_strip_html(j.get("descriptionPlain") or j.get("description", "")),
             remote=workplace == "remote" or "remote" in loc.lower(),
@@ -89,7 +89,7 @@ def fetch_ashby(token: str, name: str | None = None) -> list[Job]:
         addr = ((j.get("address") or {}).get("postalAddress") or {})
         jobs.append(Job(
             source="ashby", company=name or token, job_id=j["id"],
-            title=j.get("title", ""), location="; ".join(l for l in locs if l),
+            title=html.unescape(j.get("title", "")), location="; ".join(l for l in locs if l),
             url=j.get("jobUrl", ""), apply_url=j.get("applyUrl") or j.get("jobUrl", ""),
             description=_strip_html(j.get("descriptionPlain") or j.get("descriptionHtml", "")),
             remote=bool(j.get("isRemote")), posted_at=j.get("publishedAt", ""),
