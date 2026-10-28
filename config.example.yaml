@@ -59,3 +59,4 @@ prefs:
 companies_file: companies.yaml
 db_path: applications.db
 browser_profile_dir: ~/.autoapply-browser
+tabs_at_once: 5          # application forms open at the same time during `apply`
