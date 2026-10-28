@@ -102,9 +102,11 @@ def load_answers(path: str) -> dict:
         raise SystemExit(f"{path} not found. Run: cp answers.example.yaml answers.yaml, then fill it in.")
     with open(path) as f:
         a = yaml.safe_load(f)
-    text = open(path).read()
-    if "CHANGE_ME" in text:
-        raise SystemExit(f"{path} still has CHANGE_ME answers. Fill them in before auto-submitting.")
+    # Only real answers count; the word also appears in the file's comments.
+    unfilled = [r["match"][0] for r in a.get("rules", []) if str(r.get("answer", "")).strip().upper() == "CHANGE_ME"]
+    if unfilled:
+        raise SystemExit(f"{path} still has CHANGE_ME answers for: {', '.join(unfilled)}. "
+                         "Fill them in before auto-submitting.")
     if not a.get("confirmed"):
         raise SystemExit(f"Set `confirmed: true` in {path} once every answer is correct for you.")
     return a
