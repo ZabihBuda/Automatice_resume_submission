@@ -1,0 +1,17 @@
+<!doctype html><html><body>
+<form action="thanks.html">
+<label for=first_name>First Name *</label><input id=first_name required>
+<label for=last_name>Last Name *</label><input id=last_name required>
+<label for=email>Email *</label><input id=email required>
+<label for=phone>Phone</label><input id=phone>
+<label for=resume>Resume/CV *</label><input type=file id=resume>
+<div class=field><label for=q1>Are you legally authorized to work in the United States? *</label>
+  <select id=q1 required><option value="">Select...</option><option value=1>Yes</option><option value=0>No</option></select></div>
+<fieldset><legend>Will you now or in the future require visa sponsorship? *</legend>
+  <label><input type=radio name=spons value=y required> Yes</label><label><input type=radio name=spons value=n> No</label></fieldset>
+<div class=field><label for=q3>How did you hear about this job?</label><input id=q3></div>
+<div class=field><label for=q4>Why do you want to work at Acme? *</label><textarea id=q4 required></textarea></div>
+<div class=field><label for=q5>Gender</label><select id=q5><option value="">Select</option><option>Male</option><option>Female</option><option>Decline to self-identify</option></select></div>
+<label><input type=checkbox id=c1 required> I agree to the privacy policy *</label>
+<iframe title="recaptcha challenge expires in two minutes" src="about:blank" style="width:400px;height:500px"></iframe><button type=submit>Submit application</button>
+</form></body></html>

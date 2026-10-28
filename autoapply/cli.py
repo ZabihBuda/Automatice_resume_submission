@@ -1,9 +1,14 @@
 """Command line entry point.
 
-    python -m autoapply daily     # fetch new jobs + build today's queue of 30 (put this on a schedule)
+    python -m autoapply run       # fetch new jobs and submit up to 30 applications automatically
+    python -m autoapply auto --dry-run   # fill today's forms without submitting (check the screenshots)
+    python -m autoapply retry     # re-try jobs skipped for a missing answer, after editing answers.yaml
+    python -m autoapply log       # what has been applied to, and totals
+
+Manual mode, if you'd rather check each one:
+    python -m autoapply daily     # fetch new jobs + build today's queue of 30
     python -m autoapply review    # approve or skip each queued job
     python -m autoapply apply     # pre-fill approved applications in a browser; you click Submit
-    python -m autoapply log       # what has been applied to, and totals
 """
 from __future__ import annotations
 
@@ -18,6 +23,7 @@ from datetime import date
 import yaml
 
 from . import apply as apply_mod
+from . import autofill
 from .db import Store
 from .filters import evaluate
 from .sources import fetch_all
@@ -112,7 +118,7 @@ def cmd_review(store: Store, approve_all: bool):
 
 
 def cmd_log(store: Store):
-    for r in store.by_status("applied", "failed"):
+    for r in store.by_status("applied", "unconfirmed", "needs_input", "captcha", "failed"):
         print(f"{(r['applied_at'] or '')[:10]}  {r['status']:8} {r['company']:<20} {r['title']}")
     print("\nTotals:", store.counts())
 
@@ -127,6 +133,12 @@ def main(argv=None):
     rv = sub.add_parser("review"); rv.add_argument("--approve-all", action="store_true")
     a = sub.add_parser("apply"); a.add_argument("--limit", type=int)
     sub.add_parser("log")
+    for name in ("auto", "run"):
+        p = sub.add_parser(name)
+        p.add_argument("--limit", type=int)
+        p.add_argument("--dry-run", action="store_true", help="fill forms but don't click Submit")
+        p.add_argument("--headless", action="store_true", help="don't show the browser window")
+    sub.add_parser("retry")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -148,3 +160,11 @@ def main(argv=None):
         apply_mod.run(store, cfg, limit)
     elif args.cmd == "log":
         cmd_log(store)
+    elif args.cmd in ("auto", "run"):
+        if args.cmd == "run":
+            cmd_fetch(store, cfg)
+            cmd_queue(store, cfg, limit)
+        autofill.run(store, cfg, limit, args.dry_run, args.headless, HERE)
+    elif args.cmd == "retry":
+        n = store.requeue("needs_input", "captcha", "failed")
+        print(f"{n} skipped jobs are queued again. Run `python3 -m autoapply auto`.")

@@ -1,0 +1,76 @@
+# Your answers to the questions application forms ask. Copy to answers.yaml (git-ignored) and edit.
+#
+#   cp answers.example.yaml answers.yaml
+#   open -e answers.yaml
+#
+# Every answer here is sent to employers exactly as written, so make each one true for you.
+# The tool refuses to run while any CHANGE_ME is left or `confirmed` is false.
+
+confirmed: false        # set to true after you've checked every answer below
+
+# Rules are tried first, top to bottom. `match` is a list of regular expressions
+# (case-insensitive) checked against the question text; the first rule that matches wins.
+# For dropdowns and radio buttons, `answer` is matched against the option text.
+rules:
+  # --- Work authorization: decide these two yourself. ---
+  # Canadians on TN can usually answer the first one "Yes" (TN is granted at the border with
+  # a job offer), but some employers mean "without any visa". Pick what you're comfortable with.
+  - match: ["legally authori[sz]ed to work", "authori[sz]ed to work in the (u\\.?s|united states)", "eligible to work in the (u\\.?s|united states)", "right to work"]
+    answer: CHANGE_ME          # Yes / No
+  # TN does not need H-1B sponsorship, but the employer does sign a TN support letter.
+  - match: ["require.*sponsor", "need.*sponsor", "sponsorship", "visa status", "h-?1b"]
+    answer: CHANGE_ME          # usually No for TN, or Yes if you want to be upfront
+
+  # --- Location and logistics ---
+  - match: ["willing to relocate", "open to relocat", "relocation"]
+    answer: "Yes"
+  - match: ["commute", "work (from|in) (the|our) office", "hybrid", "on-?site", "in[- ]person"]
+    answer: "Yes"
+  - match: ["^(current )?location", "^city", "where are you (currently )?(located|based)"]
+    answer: "Toronto, Ontario, Canada"
+  - match: ["country"]
+    answer: "Canada"
+  - match: ["start date", "when can you start", "earliest.*start", "notice period"]
+    answer: "Two weeks after an offer"
+  - match: ["over (the age of )?18", "at least 18", "18 years"]
+    answer: "Yes"
+
+  # --- About this application ---
+  - match: ["how did you hear", "where did you (hear|find|learn)", "^source"]
+    answer: "Company website"
+  - match: ["previously (been )?(employed|worked)", "worked (for|at) .* before", "former employee"]
+    answer: "No"
+  - match: ["referr?ed by", "referral", "know anyone"]
+    answer: "No"
+  - match: ["non-?compete", "non-?solicit"]
+    answer: "No"
+  - match: ["salary", "compensation expectation", "pay expectation", "desired pay"]
+    answer: "Open to discussing; aligned with the posted range"
+  - match: ["pronoun"]
+    answer: "Prefer not to say"
+
+  # --- Voluntary US EEO questions. "Decline" answers are always allowed. ---
+  - match: ["gender", "sex\\b"]
+    answer: "Decline to self-identify"
+  - match: ["race", "ethnicity", "hispanic", "latino"]
+    answer: "Decline to self-identify"
+  - match: ["veteran"]
+    answer: "I don't wish to answer"
+  - match: ["disability"]
+    answer: "I don't want to answer"
+  - match: ["sexual orientation", "transgender", "lgbt"]
+    answer: "Decline to self-identify"
+
+# Facts Claude may use for questions the rules above don't cover (free-text questions
+# like "Why do you want to work here?", and unusual dropdowns). Claude also reads your
+# resume. It is told to skip a question rather than guess when these don't settle it.
+facts:
+  citizenship: Canadian citizen, eligible for TN work status in the United States
+  current_location: Toronto, Ontario, Canada
+  relocation: Willing to relocate anywhere in the US; prefers Syracuse, NY or Virginia
+  work_style: Open to remote, hybrid or on-site
+  notice_period: Two weeks
+  highest_degree: Master of Management in Artificial Intelligence, Schulich School of Business (2024)
+
+use_claude: true              # needs ANTHROPIC_API_KEY set in your environment
+claude_model: claude-opus-5-5

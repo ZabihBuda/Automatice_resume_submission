@@ -57,6 +57,7 @@ prefs:
            data pipelines, airflow, dbt, langchain, transformers, pytorch, scikit-learn]
 
 companies_file: companies.yaml
+answers_file: answers.yaml   # your answers to application questions (see answers.example.yaml)
 db_path: applications.db
 browser_profile_dir: ~/.autoapply-browser
 tabs_at_once: 5          # application forms open at the same time during `apply`

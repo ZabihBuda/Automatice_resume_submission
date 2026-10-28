@@ -14,8 +14,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     dedupe_key  TEXT NOT NULL,              -- company + normalized title, catches reposts
     source      TEXT, company TEXT, job_id TEXT, title TEXT, location TEXT,
     url TEXT, apply_url TEXT, remote INTEGER, posted_at TEXT,
-    score REAL, warnings TEXT,
+    score REAL, warnings TEXT, description TEXT,
     status      TEXT NOT NULL DEFAULT 'new', -- new | queued | approved | skipped | applied | failed
+                                         -- | needs_input | captcha | unconfirmed
     first_seen  TEXT, queued_on TEXT, applied_at TEXT, notes TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_dedupe ON jobs(dedupe_key);
@@ -38,6 +39,9 @@ class Store:
         self.conn = sqlite3.connect(path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(jobs)")}
+        if "description" not in cols:  # databases created before auto-submit
+            self.conn.execute("ALTER TABLE jobs ADD COLUMN description TEXT")
 
     def upsert(self, job: Job, score: float, warnings: list[str]) -> bool:
         """Insert a new job. Returns False if it, or a same-company same-title job, is already known."""
@@ -49,9 +53,9 @@ class Store:
         ).fetchone()
         self.conn.execute(
             "INSERT INTO jobs (key, dedupe_key, source, company, job_id, title, location, url, apply_url,"
-            " remote, posted_at, score, warnings, status, first_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " remote, posted_at, score, warnings, description, status, first_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (job.key, dk, job.source, job.company, job.job_id, job.title, job.location, job.url,
-             job.apply_url, int(job.remote), job.posted_at, score, json.dumps(warnings),
+             job.apply_url, int(job.remote), job.posted_at, score, json.dumps(warnings), job.description,
              "skipped" if dup else "new", now()),
         )
         self.conn.commit()
@@ -71,8 +75,9 @@ class Store:
         return picked
 
     def set_status(self, key: str, status: str, notes: str | None = None):
-        extra = ", applied_at=?" if status == "applied" else ""
-        params = [status, notes] + ([now()] if status == "applied" else []) + [key]
+        submitted = status in ("applied", "unconfirmed")
+        extra = ", applied_at=?" if submitted else ""
+        params = [status, notes] + ([now()] if submitted else []) + [key]
         self.conn.execute(f"UPDATE jobs SET status=?, notes=COALESCE(?, notes){extra} WHERE key=?", params)
         self.conn.commit()
 
@@ -84,11 +89,17 @@ class Store:
         q = ",".join("?" * len(statuses))
         return self.conn.execute(f"SELECT * FROM jobs WHERE status IN ({q}) ORDER BY score DESC", statuses).fetchall()
 
+    def requeue(self, *statuses: str) -> int:
+        q = ",".join("?" * len(statuses))
+        n = self.conn.execute(f"UPDATE jobs SET status='approved' WHERE status IN ({q})", statuses).rowcount
+        self.conn.commit()
+        return n
+
     def counts(self) -> dict:
         return dict(self.conn.execute("SELECT status, COUNT(*) FROM jobs GROUP BY status").fetchall())
 
     def applied_today(self) -> int:
         today = datetime.now(timezone.utc).date().isoformat()
         return self.conn.execute(
-            "SELECT COUNT(*) FROM jobs WHERE status='applied' AND applied_at LIKE ?", (today + "%",)
+            "SELECT COUNT(*) FROM jobs WHERE status IN ('applied','unconfirmed') AND applied_at LIKE ?", (today + "%",)
         ).fetchone()[0]

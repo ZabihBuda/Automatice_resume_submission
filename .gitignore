@@ -3,3 +3,5 @@ applications.db
 queue/
 __pycache__/
 *.pdf
+answers.yaml
+logs/
