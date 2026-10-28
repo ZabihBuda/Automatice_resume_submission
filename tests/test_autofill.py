@@ -105,3 +105,4 @@ def test_skips_when_required_answer_unknown(page, monkeypatch):
 def test_skips_captcha(page, monkeypatch):
     status, _ = run_form(page, monkeypatch, "captcha", ai=why)
     assert status == "captcha"
+

@@ -50,6 +50,10 @@ def test_greenhouse_parse_and_filter(monkeypatch):
     assert kept["4"] is None   # citizenship / clearance
     assert kept["5"]["warnings"] == ["unable to sponsor"]
     assert kept["6"] is None   # not a DS title
+    from autoapply.filters import title_matches
+    assert not title_matches("Senior Staff Machine Learning Engineer", prefs())
+    assert not title_matches("Staff Data Scientist", prefs())
+    assert title_matches("Senior Data Scientist", prefs())
 
 
 def test_location_rules():
@@ -84,3 +88,14 @@ def test_preferred_locations():
     for loc in ["Syracuse, NY", "McLean, VA", "Arlington, Virginia"]:
         assert evaluate(mk(loc), p)["score"] == base + 15, loc
     assert evaluate(mk("Charleston, West Virginia"), p)["score"] == base
+
+
+def test_queue_skips_jobs_already_waiting():
+    with tempfile.TemporaryDirectory() as d:
+        s = Store(os.path.join(d, "t.db"))
+        s.upsert(Job("greenhouse", "Samsara", "1", "Senior AI Data Engineer II", "SF, CA", "u", "u"), 50, [])
+        s.mark_queued([r["key"] for r in s.pick_for_queue(30, 3)], "2026-10-27")
+        # Next day, the same role is posted again for other cities.
+        for i in (2, 3):
+            s.upsert(Job("greenhouse", "Samsara", str(i), "Senior AI Data Engineer II", "NY, NY", "u", "u"), 50, [])
+        assert s.pick_for_queue(30, 3) == []

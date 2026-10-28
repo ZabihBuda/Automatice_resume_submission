@@ -14,6 +14,7 @@ Skipped jobs can still be done by hand with `python3 -m autoapply apply`.
 """
 from __future__ import annotations
 
+import html
 import json
 import logging
 import os
@@ -24,6 +25,7 @@ import yaml
 
 from .apply import form_url, prefill
 from .db import Store
+from .filters import title_matches
 
 # Collects every unanswered question on the page. Each element gets a data-aa
 # attribute so Python can find it again.
@@ -49,13 +51,15 @@ COLLECT_JS = r"""
     return clean(l ? l.innerText : '');
   };
   const req = (el, label) => el.required || el.getAttribute('aria-required') === 'true' || /\*\s*$|\*\s*\(|\(required\)/i.test(label);
-  let n = 0; const out = []; const groups = {};
+  let n = 0, gid = 0; const out = []; const groups = {}; const boxIds = new Map();
   for (const el of document.querySelectorAll('input, textarea, select, [role=combobox]')) {
     const tag = el.tagName.toLowerCase(); const type = (el.getAttribute('type') || tag).toLowerCase();
     if (['hidden', 'submit', 'button', 'file', 'image', 'reset', 'search'].includes(type)) continue;
     if (el.closest('[aria-hidden=true]') || el.disabled) continue;
     if (type === 'radio' || type === 'checkbox') {
-      const key = el.name || ('g' + (box(el) ? Array.from(document.querySelectorAll('*')).indexOf(box(el)) : n));
+      const b = box(el);
+      if (b && !boxIds.has(b)) boxIds.set(b, 'g' + (gid++));
+      const key = el.name || (b ? boxIds.get(b) : 'n' + n);
       if (!groups[key]) { groups[key] = { kind: type, label: groupLabel(el), options: [], required: false, answered: false }; out.push(groups[key]); }
       const g = groups[key]; const id = 'aa' + (n++); el.setAttribute('data-aa', id);
       const optLabel = clean((el.labels && el.labels[0] && el.labels[0].innerText) || el.getAttribute('aria-label') || el.value);
@@ -355,7 +359,20 @@ def run(store: Store, cfg: dict, limit: int, dry_run: bool, headless: bool, here
         print("No ANTHROPIC_API_KEY set: only questions covered by answers.yaml will be answered.\n")
 
     left = max(limit - store.applied_today(), 0)
-    rows = store.by_status("approved", "queued")[:left]
+    rows, seen = [], set()
+    for r in store.by_status("approved", "queued"):
+        if cfg.get("prefs") and not title_matches(html.unescape(r["title"]), cfg["prefs"]):
+            # Queued before a title filter was added to config.yaml (e.g. "staff").
+            if not dry_run:
+                store.set_status(r["key"], "skipped", "title no longer matches title_include/title_exclude")
+            continue
+        if r["dedupe_key"] in seen:  # same title at the same company, e.g. one posting per city
+            if not dry_run:
+                store.set_status(r["key"], "skipped", "duplicate of another queued posting")
+            continue
+        seen.add(r["dedupe_key"])
+        rows.append(r)
+    rows = rows[:left]
     if not rows:
         print(f"Nothing to apply to (applied today: {store.applied_today()}, cap {limit}). Run `daily` first.")
         return
@@ -365,17 +382,37 @@ def run(store: Store, cfg: dict, limit: int, dry_run: bool, headless: bool, here
     print(f"{'Dry run: filling but not submitting' if dry_run else 'Applying'} to {len(rows)} jobs...\n")
 
     with sync_playwright() as pw:
-        ctx = pw.chromium.launch_persistent_context(
-            os.path.expanduser(cfg.get("browser_profile_dir", "~/.autoapply-browser")), headless=headless)
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        profile_dir = os.path.expanduser(cfg.get("browser_profile_dir", "~/.autoapply-browser"))
+        ctx = None
+
+        def fresh_page():
+            # Each job gets its own tab. If the browser was closed or crashed, start a new one,
+            # so one bad page can't take down the rest of the run.
+            nonlocal ctx
+            try:
+                return ctx.new_page()
+            except Exception:
+                try:
+                    ctx and ctx.close()
+                except Exception:
+                    pass
+                ctx = pw.chromium.launch_persistent_context(profile_dir, headless=headless)
+                for p in ctx.pages:
+                    p.close()
+                return ctx.new_page()
+
         for i, r in enumerate(rows, 1):
-            print(f"[{i}/{len(rows)}] {r['company']} | {r['title']}")
             job = dict(r)
+            job["title"] = html.unescape(job["title"])  # older rows were saved with &amp; etc.
+            print(f"[{i}/{len(rows)}] {job['company']} | {job['title']}")
+            page = fresh_page()
             try:
                 status, log = apply_one(page, r, job, cfg, answers, resume_pdf, resume_txt, use_llm, dry_run)
             except Exception as e:
-                status, log = "failed", {"error": f"{type(e).__name__}: {e}"}
-            name = re.sub(r"[^A-Za-z0-9]+", "_", f"{r['company']}_{r['title']}")[:80]
+                status, log = "failed", {"error": f"{type(e).__name__}: {str(e).splitlines()[0]}"}
+                if "closed" in str(e).lower():
+                    log["error"] += " (the browser window closed; leave it open while the tool runs)"
+            name = re.sub(r"[^A-Za-z0-9]+", "_", f"{job['company']}_{job['title']}")[:80]
             try:
                 page.screenshot(path=os.path.join(shots, f"{name}.png"), full_page=True)
             except Exception:
@@ -389,9 +426,16 @@ def run(store: Store, cfg: dict, limit: int, dry_run: bool, headless: bool, here
                 print(f"      no answer for: {q}")
             if log.get("error"):
                 print(f"      {log['error']}")
-            if status != "dry_run":
+            if not dry_run:  # a dry run never changes a job's status
                 store.set_status(r["key"], status, json.dumps(log))
-        ctx.close()
+            try:
+                page.close()
+            except Exception:
+                pass
+        try:
+            ctx.close()
+        except Exception:
+            pass
     print(f"\nDone: {totals}. Screenshots in {shots}")
     if totals.get("needs_input"):
         print("Add rules to answers.yaml for the questions listed above, then run `retry`.")

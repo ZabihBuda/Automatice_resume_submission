@@ -42,6 +42,8 @@ prefs:
     - internship
     - director
     - principal
+    - staff            # also covers "Senior Staff"; plain "Senior" roles are kept
+    - distinguished
     - vp
     - head of
     - manager
