@@ -93,6 +93,23 @@ COLLECT_JS = r"""
 }
 """
 
+# Shown at the top of every page the tool opens, so nobody starts filling a form by hand.
+BANNER_JS = r"""
+(() => {
+  const add = () => {
+    if (document.getElementById('autoapply-banner') || !document.body) return;
+    const b = document.createElement('div');
+    b.id = 'autoapply-banner';
+    b.textContent = 'MESSAGE';
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;pointer-events:none;'
+      + 'background:#1d4ed8;color:#fff;font:600 15px system-ui,sans-serif;padding:10px 16px;text-align:center;'
+      + 'box-shadow:0 2px 8px rgba(0,0,0,.25)';
+    document.body.appendChild(b);
+  };
+  document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', add) : add();
+})();
+"""
+
 CONSENT = re.compile(r"\b(i agree|i acknowledge|i consent|i certify|i have read|privacy (policy|notice)|terms)\b", re.I)
 CONFIRM = re.compile(
     r"thank(s| you) for (applying|your (application|interest))|application (has been |was )?(submitted|received)"
@@ -379,7 +396,11 @@ def run(store: Store, cfg: dict, limit: int, dry_run: bool, headless: bool, here
     shots = os.path.join(here, "logs", date.today().isoformat())
     os.makedirs(shots, exist_ok=True)
     totals = {}
-    print(f"{'Dry run: filling but not submitting' if dry_run else 'Applying'} to {len(rows)} jobs...\n")
+    print(f"{'Dry run: filling but not submitting' if dry_run else 'Applying'} to {len(rows)} jobs...")
+    print("The browser fills in every form by itself. You don't need to type or click anything in it.\n")
+    banner = BANNER_JS.replace("MESSAGE", (
+        "Automatic dry run: this form is being filled in for you and won't be sent. No need to type here."
+        if dry_run else "Applying automatically: this form is being filled in and submitted for you. No need to type here."))
 
     with sync_playwright() as pw:
         profile_dir = os.path.expanduser(cfg.get("browser_profile_dir", "~/.autoapply-browser"))
@@ -397,6 +418,7 @@ def run(store: Store, cfg: dict, limit: int, dry_run: bool, headless: bool, here
                 except Exception:
                     pass
                 ctx = pw.chromium.launch_persistent_context(profile_dir, headless=headless)
+                ctx.add_init_script(banner)
                 for p in ctx.pages:
                     p.close()
                 return ctx.new_page()
