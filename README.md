@@ -98,8 +98,11 @@ so you can check the screenshots in `logs/` before anything goes to an employer.
 Leave the browser window alone while it runs (minimise it if you like). To stop a run, press
 Ctrl+C in Terminal; typing words there does nothing.
 
-When jobs are skipped with `needs_input`, the output lists the questions. Add a rule for
-each one to `answers.yaml`, then run `python3 -m autoapply retry` and `python3 -m autoapply auto`.
+When a job is skipped with `needs_input`, its unanswered questions are saved to
+`unanswered.yaml` (with the choices, for dropdowns). Answer each one there once, then run
+`python3 -m autoapply retry` and `python3 -m autoapply auto`. Every later form that asks the same
+question gets the same answer. For questions that come in many wordings, a rule in `answers.yaml`
+covers them all.
 
 ### Run it automatically every morning
 

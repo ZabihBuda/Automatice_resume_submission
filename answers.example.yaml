@@ -12,6 +12,8 @@ confirmed: false        # set to true after you've checked every answer below
 # (case-insensitive) checked against the question text; the first rule that matches wins.
 # For dropdowns and radio buttons, `answer` is matched against the option text, and a
 # "decline" answer also picks options like "I don't wish to answer" or "Prefer not to say".
+# `answer` can be a list: for a dropdown the first one that matches an option is used,
+# for a text box the first one.
 # Put Yes and No in quotes ("Yes"), otherwise YAML reads them as true/false (the tool copes either way).
 # {first_name}, {current_company}, {location} etc. are filled in from the profile in config.yaml,
 # and {company} and {title} from the job.
@@ -37,32 +39,67 @@ rules:
     answer: "Toronto, Ontario, Canada"
   - match: ["^country", "country (of|where) (residence|you live)"]
     answer: "Canada"
-  - match: ["start date", "when can you start", "earliest.*start", "notice period"]
-    answer: "Two weeks after an offer"
+  - match: ["^start date\\W*$", "when can you start", "earliest.*start", "available to start", "notice period"]
+    answer: ["Two weeks after an offer", "2 weeks", "Within 2 weeks", "Two weeks", "Within 1 month", "Within a month", "Less than 1 month", "1 month"]
   - match: ["over (the age of )?18", "at least 18", "18 years", "18\\+"]
     answer: "Yes"
 
   # --- About you (filled in from config.yaml) ---
   - match: ["preferred (first )?name"]
     answer: "{first_name}"
+  - match: ["preferred last name"]
+    answer: "{last_name}"
   - match: ["legal name", "full name"]
     answer: "{first_name} {last_name}"
   - match: ["(current|most recent) (\\(or most recent\\) )?(company|employer)"]
     answer: "{current_company}"
+  - match: ["(current|most recent)( job)? title", "current/most recent (job )?title", "current (role|position)\\W*$"]
+    answer: "{current_title}"
+  - match: ["postal code", "zip ?code", "postcode"]
+    answer: "{postal_code}"      # add postal_code: "..." under profile in config.yaml
+
+  # --- Education (filled in from the profile in config.yaml) ---
+  - match: ["^(name of )?(school|university|college|institution)\\b"]
+    answer: ["{school}", "{school_other_name}"]
+  - match: ["^degree"]
+    answer: ["{degree}", "{degree_other_name}"]
+  - match: ["^discipline", "field of study", "^major\\b", "area of study"]
+    answer: "{discipline}"
+  - match: ["end date year", "graduation year", "year of graduation", "year graduated"]
+    answer: "{graduation_year}"
+  - match: ["\\bph\\.?d\\b", "doctorate", "doctoral"]
+    answer: "No"
+  - match: ["optional practical training", "\\bopt\\b(?!-)", "\\bstem\\b.*extension", "\\bcpt\\b"]
+    answer: "No"              # OPT/CPT are for F-1 students; TN doesn't use them
 
   # --- About this application ---
-  - match: ["how did you hear", "where did you (hear|find|learn)", "^source"]
-    answer: "Company website"
-  - match: ["previously (been )?(employed|worked)", "worked (for|at) .* before", "former employee", "ever (been )?(employed|worked) (by|for|at)"]
+  - match: ["how did you (hear|find|learn)", "where did you (hear|find|learn)", "where have you (heard|learned|learnt|found)", "^source"]
+    answer: ["Company website", "Company careers", "Careers page", "Career site", "Careers", "Website", "Job board", "Online", "Internet", "Other"]
+  - match: ["previously,? (been )?(employed|worked)", "worked (for|at) .* before", "former employee", "ever (been )?(employed|worked) (by|for|at)",
+            "(currently|previously),? (or have you previously,? )?work(ed)? (for|at)"]
+    answer: "No"
+  - match: ["government official", "public office"]
+    answer: "No"
+  - match: ["conflict of interest", "significant financial interest"]
     answer: "No"
   - match: ["referr?ed by", "referral", "know anyone"]
     answer: "No"
   - match: ["non-?compete", "non-?solicit", "agreement with a former employer"]
     answer: "No"
+  - match: ["(accept|comfortable with|okay with|ok with|agree with|agreeable to) the (listed |posted |stated )?(salary|pay|compensation)"]
+    answer: "Yes"
   - match: ["salary", "compensation expectation", "pay expectation", "desired pay"]
     answer: "Open to discussing; aligned with the posted range"
   - match: ["pronoun"]
     answer: "Prefer not to say"
+  - match: ["willing (and able )?to travel", "travel to customer", "travel requirement"]
+    answer: "Yes"
+  - match: ["plan to work remotely", "prefer to work remotely"]
+    answer: "Yes"
+  - match: ["whatsapp", "\\bsms\\b", "text messages?", "opt[- ]?in"]
+    answer: "No"              # never sign up for messages
+  - match: ["(how|ways) you use ai tools", "experience (with |using )ai tools", "ai tools or technologies", "use of ai tools"]
+    answer: ["Advanced", "Expert", "Daily", "Extensively", "Frequently", "Regularly"]
 
   # --- Free-text questions. `only_without_claude: true` means these are used only when no
   # ANTHROPIC_API_KEY is set; with a key, Claude writes a tailored answer for each job instead.
@@ -84,7 +121,7 @@ rules:
   # --- Voluntary US EEO questions. "Decline" answers are always allowed. ---
   - match: ["gender", "sex\\b"]
     answer: "Decline to self-identify"
-  - match: ["\\brace\\b", "ethnicit", "hispanic", "latin[ox]"]
+  - match: ["\\brace\\b", "racial", "ethnic", "hispanic", "latin[ox]"]
     answer: "Decline to self-identify"
   - match: ["veteran"]
     answer: "I don't wish to answer"
