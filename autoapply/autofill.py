@@ -60,7 +60,7 @@ COLLECT_JS = r"""
       const b = box(el);
       if (b && !boxIds.has(b)) boxIds.set(b, 'g' + (gid++));
       const key = el.name || (b ? boxIds.get(b) : 'n' + n);
-      if (!groups[key]) { groups[key] = { kind: type, label: groupLabel(el), options: [], required: false, answered: false }; out.push(groups[key]); }
+      if (!groups[key]) { groups[key] = { id: 'grp' + out.length, kind: type, label: groupLabel(el), options: [], required: false, answered: false }; out.push(groups[key]); }
       const g = groups[key]; const id = 'aa' + (n++); el.setAttribute('data-aa', id);
       const optLabel = clean((el.labels && el.labels[0] && el.labels[0].innerText) || el.getAttribute('aria-label') || el.value);
       g.options.push({ id, text: optLabel }); g.required = g.required || req(el, g.label);
@@ -85,7 +85,7 @@ COLLECT_JS = r"""
     if (btns.length < 2 || btns.length > 6) continue;
     const label = clean((c.querySelector('legend, label, [class*=label], [class*=title]') || {}).innerText || '');
     if (!label) continue;
-    const g = { kind: 'buttons', label, options: [], required: /\*/.test(label), answered: btns.some(b => b.getAttribute('aria-pressed') === 'true' || /active|selected/i.test(b.className)) };
+    const g = { id: 'grp' + out.length, kind: 'buttons', label, options: [], required: /\*/.test(label), answered: btns.some(b => b.getAttribute('aria-pressed') === 'true' || /active|selected/i.test(b.className)) };
     for (const b of btns) { const id = 'aa' + (n++); b.setAttribute('data-aa', id); g.options.push({ id, text: clean(b.innerText) }); }
     out.push(g);
   }
@@ -110,12 +110,53 @@ BANNER_JS = r"""
 })();
 """
 
-CONSENT = re.compile(r"\b(i agree|i acknowledge|i consent|i certify|i have read|privacy (policy|notice)|terms)\b", re.I)
+CONSENT = re.compile(r"\b(i agree|i acknowledge|i consent|i certify|i have read|privacy (policy|notice)|review and acknowledge"
+                     r"|terms (and conditions|of (use|service)))\b", re.I)
 CONFIRM = re.compile(
     r"thank(s| you) for (applying|your (application|interest))|application (has been |was )?(submitted|received)"
     r"|we('ve| have) received your application|successfully (submitted|applied)", re.I)
 OPT_IN = re.compile(r"\b(sms|text messages?|marketing|newsletter|promotional|future (roles|opportunities))\b", re.I)
-VERIFY = re.compile(r"(security|verification) code|verify (it'?s|that it'?s) you|check your email for a code", re.I)
+VERIFY = re.compile(r"(security|verification) code|verify (it'?s|that it'?s) you|check your email for a code"
+                    r"|code (was |has been )?sent to your email|enter the \d+-character code", re.I)
+
+# Dropdown options on the page, in the order a person would see them. Tags each with data-aa-opt.
+OPTIONS_JS = r"""
+() => {
+  const vis = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  document.querySelectorAll('[data-aa-opt]').forEach(el => el.removeAttribute('data-aa-opt'));
+  for (const sel of ["[role=listbox] [role=option]", "[role=option]", "[id*='-option-']", ".select__option", "[class*=option]"]) {
+    const els = Array.from(document.querySelectorAll(sel)).filter(vis)
+      .filter(el => !el.querySelector(sel) && (el.innerText || '').trim());
+    if (els.length) return els.map((el, i) => { el.setAttribute('data-aa-opt', i); return el.innerText.replace(/\s+/g, ' ').trim(); });
+  }
+  return [];
+}
+"""
+
+# Error messages a form shows after a rejected Submit ("This field is required").
+ERRORS_JS = r"""
+() => {
+  const vis = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const clean = t => (t || '').replace(/\s+/g, ' ').trim();
+  const out = [];
+  for (const el of document.querySelectorAll('[class*=error], [class*=Error], [role=alert], [aria-live]')) {
+    const t = clean(el.innerText);
+    if (!vis(el) || !t || t.length > 200 || !/required|invalid|please|must|blank|error/i.test(t)) continue;
+    const box = el.closest('.field, .select, fieldset, [class*=question], [class*=field], li');
+    const l = box && box.querySelector('label, legend');
+    out.push((l && clean(l.innerText) && clean(l.innerText) !== t ? clean(l.innerText) + ': ' : '') + t);
+  }
+  return Array.from(new Set(out)).slice(0, 5);
+}
+"""
+
+
+EXAMPLE_ANSWERS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "answers.example.yaml")
+
+
+def _as_text(v) -> str:
+    # YAML reads a bare yes/no as true/false; forms want "Yes"/"No".
+    return {True: "Yes", False: "No"}.get(v, v) if isinstance(v, bool) else str(v)
 
 
 def load_answers(path: str) -> dict:
@@ -123,38 +164,78 @@ def load_answers(path: str) -> dict:
         raise SystemExit(f"{path} not found. Run: cp answers.example.yaml answers.yaml, then fill it in.")
     with open(path) as f:
         a = yaml.safe_load(f)
+    rules = a.get("rules") or []
+    for r in rules:
+        r["answer"] = _as_text(r.get("answer", ""))
     # Only real answers count; the word also appears in the file's comments.
-    unfilled = [r["match"][0] for r in a.get("rules", []) if str(r.get("answer", "")).strip().upper() == "CHANGE_ME"]
+    unfilled = [r["match"][0] for r in rules if r["answer"].strip().upper() == "CHANGE_ME"]
     if unfilled:
         raise SystemExit(f"{path} still has CHANGE_ME answers for: {', '.join(unfilled)}. "
                          "Fill them in before auto-submitting.")
     if not a.get("confirmed"):
         raise SystemExit(f"Set `confirmed: true` in {path} once every answer is correct for you.")
+    a["rules"] = rules + default_rules(rules)
     return a
 
 
+def default_rules(own: list[dict]) -> list[dict]:
+    """Rules from answers.example.yaml, used after your own so new ones arrive with `git pull`.
+    A CHANGE_ME rule takes your answer from your rule with the same first pattern, or is dropped."""
+    if not os.path.exists(EXAMPLE_ANSWERS):
+        return []
+    with open(EXAMPLE_ANSWERS) as f:
+        example = yaml.safe_load(f).get("rules") or []
+    mine = {r["match"][0]: r["answer"] for r in own if r.get("match")}
+    out = []
+    for r in example:
+        r["answer"] = _as_text(r.get("answer", ""))
+        if r["answer"].strip().upper() == "CHANGE_ME":
+            if r["match"][0] not in mine:
+                continue
+            r["answer"] = mine[r["match"][0]]
+        out.append(r)
+    return out
+
+
 def rule_answer(label: str, answers: dict, job: dict | None = None, use_llm: bool = False) -> str | None:
-    """First matching rule's answer. {company} and {title} are filled in from the job."""
+    """First matching rule's answer. {name} placeholders are filled from `job` (the job plus your
+    profile); a rule whose placeholder has no value is passed over."""
     for r in answers.get("rules", []):
         if use_llm and r.get("only_without_claude"):
             continue
         if any(re.search(p, label, re.I) for p in r["match"]):
             text = str(r["answer"])
-            if job:
-                text = text.replace("{company}", job.get("company", "")).replace("{title}", job.get("title", ""))
+            if "{" in text:
+                values = {k: str(v).strip() for k, v in (job or {}).items() if v is not None}
+                keys = re.findall(r"\{(\w+)\}", text)
+                if any(not values.get(k) for k in keys):
+                    continue
+                for k in keys:
+                    text = text.replace("{" + k + "}", values[k])
             return text
     return None
+
+
+DECLINE = re.compile(r"decline|prefer not|not to (say|answer|disclose|self)|(don'?t|do not) (wish|want) to (answer|say|disclose)"
+                     r"|choose not|rather not|not (wish|want) to (answer|disclose)", re.I)
+AGREE_ANSWER = "(agree)"  # picks whichever option says yes / I agree / I acknowledge
+AGREE = re.compile(r"^(yes|i agree|agree|i acknowledge|acknowledged?|i accept|accept|i consent|i understand|i confirm)\b", re.I)
 
 
 def pick_option(answer: str, options: list[dict]) -> dict | None:
     """Find the option that best matches a text answer."""
     a = answer.strip().lower()
     texts = [(o, o["text"].strip().lower()) for o in options]
-    for test in (lambda t: t == a, lambda t: t.startswith(a), lambda t: a.startswith(t) and len(t) > 1,
-                 lambda t: a in t, lambda t: t in a and len(t) > 2):
+    if a == AGREE_ANSWER:
+        return next((o for o, t in texts if AGREE.search(t)), None)
+    starts = lambda t, x: re.match(re.escape(x) + r"(\b|$)", t) is not None  # "no" fits "no, i don't", not "not a veteran"
+    for test in (lambda t: t == a, lambda t: starts(t, a), lambda t: starts(a, t) and len(t) > 1,
+                 lambda t: len(a) > 3 and a in t, lambda t: t in a and len(t) > 2):
         hit = [o for o, t in texts if t and test(t)]
         if hit:
             return hit[0]
+    if DECLINE.search(a):  # "Decline to self-identify" vs "I don't wish to answer"
+        return next((o for o, t in texts if DECLINE.search(t)), None)
     return None
 
 
@@ -221,6 +302,37 @@ def ask_claude(questions: list[dict], job: dict, resume: str, answers: dict) -> 
     return {a["id"]: a["answer"] for a in json.loads(text)["answers"] if a["confident"] and a["answer"].strip()}
 
 
+def key_problems(key: str) -> list[str]:
+    """Common ways a pasted API key goes wrong, without printing the key."""
+    out = []
+    if key != key.strip():
+        out.append("it has a space or line break at the start or end")
+    k = key.strip()
+    if k[:1] in "'\"" or k[-1:] in "'\"":
+        out.append("it has quote marks inside it (the quotes in `export ANTHROPIC_API_KEY=\"...\"` must not be part of the key)")
+    if not k.strip("'\"").startswith("sk-ant-api"):
+        out.append("it doesn't start with sk-ant-api (that's how keys from console.anthropic.com start)")
+    if "CHANGE" in k.upper() or "..." in k or "YOUR" in k.upper():
+        out.append("it looks like the example text rather than a real key")
+    return out
+
+
+def check_claude(answers: dict) -> str | None:
+    """None if Claude can be reached with ANTHROPIC_API_KEY, else what's wrong. Costs nothing."""
+    import anthropic
+    model = answers.get("claude_model", DEFAULT_MODEL)
+    try:
+        anthropic.Anthropic().models.retrieve(model)
+        return None
+    except anthropic.AuthenticationError:
+        hints = key_problems(os.environ.get("ANTHROPIC_API_KEY", ""))
+        return "Anthropic rejected ANTHROPIC_API_KEY (invalid or deleted key)" + (": " + "; ".join(hints) if hints else "")
+    except anthropic.NotFoundError:
+        return f"the model {model} isn't available to your key (check claude_model in answers.yaml)"
+    except Exception as e:
+        return f"{type(e).__name__}: {str(e)[:200]}"
+
+
 def set_field(page, q: dict, answer: str) -> bool:
     loc = lambda i: page.locator(f"[data-aa='{i}']").first
     try:
@@ -245,20 +357,41 @@ def set_field(page, q: dict, answer: str) -> bool:
                 loc(p["id"]).check(force=True)
         elif q["kind"] == "combobox":
             box = loc(q["id"])
-            box.click()
-            box.fill(answer[:40])
-            page.wait_for_timeout(700)
-            options = page.locator("[role=option]")
-            texts = [options.nth(i).inner_text() for i in range(min(options.count(), 50))]
-            opt = pick_option(answer, [{"id": str(i), "text": t} for i, t in enumerate(texts)])
-            if not opt:
-                box.fill("")
-                page.keyboard.press("Escape")
-                return False
-            options.nth(int(opt["id"])).click()
+            for part in [p for p in answer.split("|") if p.strip()]:
+                if not set_combobox(page, box, part.strip()):
+                    return False
         return True
     except Exception:
         return False
+
+
+def set_combobox(page, box, answer: str) -> bool:
+    """Searchable dropdowns (react-select on Greenhouse, Ashby, Lever location). Opens the list and
+    picks the best option; if it isn't listed, types the answer to search for it."""
+    box.click()
+    page.wait_for_timeout(500)
+    texts = page.evaluate(OPTIONS_JS)
+    if not texts:
+        box.press("ArrowDown")
+        page.wait_for_timeout(400)
+        texts = page.evaluate(OPTIONS_JS)
+    opt = pick_option(answer, [{"id": str(i), "text": t} for i, t in enumerate(texts)])
+    if not opt and answer != AGREE_ANSWER:
+        box.fill(answer[:40])
+        page.wait_for_timeout(1200)  # some lists (cities) load from the server as you type
+        texts = page.evaluate(OPTIONS_JS)
+        opt = pick_option(answer, [{"id": str(i), "text": t} for i, t in enumerate(texts)])
+    if not opt:
+        try:
+            box.fill("")
+        except Exception:
+            pass
+        page.keyboard.press("Escape")
+        return False
+    page.locator(f"[data-aa-opt='{opt['id']}']").first.click()
+    page.wait_for_timeout(300)
+    page.keyboard.press("Escape")  # multi-selects keep their list open
+    return True
 
 
 def captcha_visible(page) -> bool:
@@ -276,9 +409,11 @@ def captcha_visible(page) -> bool:
 
 
 def click_submit(page) -> bool:
-    for sel in ("button[type=submit]", "input[type=submit]", "#submit_app",
-                "button:has-text('Submit application')", "button:has-text('Submit Application')",
-                "button:has-text('Submit')", "button:has-text('Apply')"):
+    # Only buttons that submit an application, never a careers site's "Apply" or search button.
+    for sel in ("#submit_app", "button:has-text('Submit application')", "button:has-text('Submit Application')",
+                "input[type=submit][value*='Submit' i]", "button[type=submit]:has-text('Submit')",
+                "form:has(input[type=file]) button[type=submit]", "form:has(input[type=file]) input[type=submit]",
+                "button:has-text('Submit')"):
         b = page.locator(sel)
         for i in range(b.count()):
             if b.nth(i).is_visible() and b.nth(i).is_enabled():
@@ -287,9 +422,10 @@ def click_submit(page) -> bool:
     return False
 
 
-def wait_for_result(page, timeout_ms=20000) -> str:
-    """applied | captcha | unconfirmed (clicked Submit, but the site never said thanks)"""
-    waited = 0
+def wait_for_result(page, timeout_ms=20000) -> tuple[str, list[str]]:
+    """applied | captcha | rejected (the form showed errors) | unconfirmed (no thank-you page),
+    plus any error messages the form showed."""
+    waited, errors = 0, []
     while waited < timeout_ms:
         page.wait_for_timeout(1000)
         waited += 1000
@@ -298,14 +434,20 @@ def wait_for_result(page, timeout_ms=20000) -> str:
         except Exception:
             continue
         if CONFIRM.search(body) or re.search(r"confirmation|thank", page.url, re.I):
-            return "applied"
+            return "applied", []
         if VERIFY.search(body) or captcha_visible(page):
-            return "captcha"
-    return "unconfirmed"
+            return "captcha", []
+        try:
+            errors = page.evaluate(ERRORS_JS)
+        except Exception:
+            errors = []
+        if errors and waited >= 4000:
+            return "rejected", errors
+    return "unconfirmed", errors
 
 
-def apply_one(page, row, job: dict, cfg: dict, answers: dict, resume_pdf: str, resume_txt: str,
-              use_llm: bool, dry_run: bool) -> tuple[str, dict]:
+def open_form(page, row) -> bool:
+    """Go to the application form. False if the page has no form (closed job, unusual site)."""
     page.goto(form_url(row), wait_until="domcontentloaded", timeout=45000)
     page.wait_for_timeout(2500)
     # Lever and some Ashby pages show the description first with an Apply button.
@@ -314,36 +456,68 @@ def apply_one(page, row, job: dict, cfg: dict, answers: dict, resume_pdf: str, r
             page.locator(sel).first.click()
             page.wait_for_timeout(2000)
             break
+    try:
+        page.wait_for_selector("input[type=file]", state="attached", timeout=10000)
+        return True
+    except Exception:
+        pass
+    # A company careers page that shows the form inside a frame: open the frame itself.
+    src = page.evaluate("() => (Array.from(document.querySelectorAll('iframe')).map(f => f.src)"
+                        ".find(s => /greenhouse\\.io|lever\\.co|ashbyhq\\.com/.test(s)) || '')")
+    if src:
+        page.goto(src, wait_until="domcontentloaded", timeout=45000)
+        page.wait_for_timeout(2500)
+        return page.locator("input[type=file]").count() > 0
+    return False
+
+
+def apply_one(page, row, job: dict, cfg: dict, answers: dict, resume_pdf: str, resume_txt: str,
+              use_llm: bool, dry_run: bool) -> tuple[str, dict]:
+    if not open_form(page, row):
+        return "failed", {"error": "no application form on the page (the job may have closed)"}
     if captcha_visible(page):
         return "captcha", {}
     filled = prefill(page, row["source"], cfg["profile"], resume_pdf)
     log = {"prefilled": filled, "answers": {}, "unanswered": []}
+    values = {**cfg["profile"], **job}  # for {first_name}, {company} etc. in answers
+
+    def answer(q, text) -> bool:
+        if set_field(page, q, text):
+            log["answers"][q["label"]] = "agreed" if text == AGREE_ANSWER else text
+            return True
+        return False
 
     questions = page.evaluate(COLLECT_JS)
     leftovers = []
     for q in questions:
         text = q["label"] + " " + (q["options"][0]["text"] if q["options"] else "")
-        if q["kind"] == "checkbox" and len(q["options"]) == 1 and CONSENT.search(text) and not OPT_IN.search(text):
-            if set_field(page, q, q["options"][0]["text"]):
-                log["answers"][q["label"]] = "checked"
-            continue
-        ans = rule_answer(q["label"], answers, job, use_llm)
-        if ans is not None and set_field(page, q, ans):
-            log["answers"][q["label"]] = ans
-        else:
+        if CONSENT.search(text) and not OPT_IN.search(text):
+            # Privacy notices: tick the box, or pick "I agree" / "Yes" / "I acknowledge".
+            if q["kind"] == "checkbox" and len(q["options"]) == 1:
+                if set_field(page, q, q["options"][0]["text"]):
+                    log["answers"][q["label"]] = "checked"
+                continue
+            if q["kind"] in ("select", "combobox", "radio", "buttons") and answer(q, AGREE_ANSWER):
+                continue
+        ans = rule_answer(q["label"], answers, values, use_llm)
+        if not (ans is not None and answer(q, ans)):
             leftovers.append(q)
 
     if leftovers and use_llm:
         try:
             ai = ask_claude(leftovers, job, resume_txt, answers)
         except Exception as e:
-            print(f"    Claude call failed: {type(e).__name__}: {e}")
-            ai = {}
+            print(f"    Claude call failed: {type(e).__name__}: {str(e)[:200]}")
+            if type(e).__name__ in ("AuthenticationError", "PermissionDeniedError"):
+                log["claude_off"] = True
+            ai, use_llm = {}, False
         still = []
         for q in leftovers:
-            if q["id"] in ai and set_field(page, q, ai[q["id"]]):
-                log["answers"][q["label"]] = ai[q["id"]]
-            else:
+            if q["id"] in ai and answer(q, ai[q["id"]]):
+                continue
+            # Claude unavailable: fall back to the template answers meant for no-key mode.
+            fallback = None if use_llm else rule_answer(q["label"], answers, values, False)
+            if not (fallback is not None and answer(q, fallback)):
                 still.append(q)
         leftovers = still
 
@@ -357,7 +531,13 @@ def apply_one(page, row, job: dict, cfg: dict, answers: dict, resume_pdf: str, r
     if not click_submit(page):
         log["error"] = "no submit button found"
         return "failed", log
-    return wait_for_result(page), log
+    status, errors = wait_for_result(page)
+    if status == "rejected":
+        log["error"] = "the site didn't accept the form: " + "; ".join(errors)
+        return "failed", log
+    if errors:
+        log["form_errors"] = errors
+    return status, log
 
 
 def run(store: Store, cfg: dict, limit: int, dry_run: bool, headless: bool, here: str):
@@ -374,6 +554,13 @@ def run(store: Store, cfg: dict, limit: int, dry_run: bool, headless: bool, here
     use_llm = bool(os.environ.get("ANTHROPIC_API_KEY")) and answers.get("use_claude", True)
     if not use_llm:
         print("No ANTHROPIC_API_KEY set: only questions covered by answers.yaml will be answered.\n")
+    else:
+        problem = check_claude(answers)
+        if problem:
+            print(f"Claude is switched off for this run: {problem}\n"
+                  "Questions covered by answers.yaml (including its template answers) are still answered.\n"
+                  "Run `python3 -m autoapply check-key` for help fixing the key.\n")
+            use_llm = False
 
     left = max(limit - store.applied_today(), 0)
     rows, seen = [], set()
@@ -404,36 +591,57 @@ def run(store: Store, cfg: dict, limit: int, dry_run: bool, headless: bool, here
 
     with sync_playwright() as pw:
         profile_dir = os.path.expanduser(cfg.get("browser_profile_dir", "~/.autoapply-browser"))
-        ctx = None
+        ctx, state = None, {"closed": True}
 
         def fresh_page():
             # Each job gets its own tab. If the browser was closed or crashed, start a new one,
             # so one bad page can't take down the rest of the run.
             nonlocal ctx
-            try:
-                return ctx.new_page()
-            except Exception:
+            if not state["closed"]:
                 try:
-                    ctx and ctx.close()
+                    return ctx.new_page()
                 except Exception:
                     pass
-                ctx = pw.chromium.launch_persistent_context(profile_dir, headless=headless)
-                ctx.add_init_script(banner)
-                for p in ctx.pages:
+            try:
+                ctx and ctx.close()
+            except Exception:
+                pass
+            ctx = pw.chromium.launch_persistent_context(profile_dir, headless=headless)
+            state["closed"] = False
+            ctx.on("close", lambda *_: state.update(closed=True))
+            ctx.add_init_script(banner)
+            page = ctx.new_page()
+            for p in ctx.pages:
+                if p != page:
                     p.close()
-                return ctx.new_page()
+            return page
 
         for i, r in enumerate(rows, 1):
             job = dict(r)
             job["title"] = html.unescape(job["title"])  # older rows were saved with &amp; etc.
             print(f"[{i}/{len(rows)}] {job['company']} | {job['title']}")
-            page = fresh_page()
-            try:
-                status, log = apply_one(page, r, job, cfg, answers, resume_pdf, resume_txt, use_llm, dry_run)
-            except Exception as e:
-                status, log = "failed", {"error": f"{type(e).__name__}: {str(e).splitlines()[0]}"}
-                if "closed" in str(e).lower():
-                    log["error"] += " (the browser window closed; leave it open while the tool runs)"
+            for attempt in (1, 2):
+                page = fresh_page()
+                try:
+                    status, log = apply_one(page, r, job, cfg, answers, resume_pdf, resume_txt, use_llm, dry_run)
+                    break
+                except Exception as e:
+                    status, log = "failed", {"error": f"{type(e).__name__}: {str(e).splitlines()[0]}"}
+                    closed = re.search(r"closed|detached", str(e), re.I)
+                    if not closed:
+                        break
+                    if attempt == 1:
+                        print("    the browser tab closed before this form was done; trying it once more")
+                        try:
+                            page.close()
+                        except Exception:
+                            pass
+                    else:
+                        log["error"] += " (the browser window closed; leave it open while the tool runs)"
+            if log.get("claude_off") and use_llm:
+                use_llm = False
+                print("    Claude rejected ANTHROPIC_API_KEY, so it is off for the rest of this run. "
+                      "Run `python3 -m autoapply check-key`.")
             name = re.sub(r"[^A-Za-z0-9]+", "_", f"{job['company']}_{job['title']}")[:80]
             try:
                 page.screenshot(path=os.path.join(shots, f"{name}.png"), full_page=True)

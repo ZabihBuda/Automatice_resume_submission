@@ -77,6 +77,9 @@ console.anthropic.com and add it to your shell once:
 echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.zshrc && source ~/.zshrc
 ```
 
+Then check it with `python3 -m autoapply check-key`. If Anthropic rejects the key, `run` says so
+at the start and carries on with the template answers instead of failing on every job.
+
 Without a key the tool still runs. Free-text questions get the template answers in
 `answers.yaml` (the "Why do you want to work here?" and "cover letter" rules, with the company
 and job title filled in), and any other required question it can't answer is skipped and listed.
@@ -91,6 +94,9 @@ python3 -m autoapply log            # what was submitted
 
 Try `python3 -m autoapply run --dry-run` first: it fills the forms but doesn't submit,
 so you can check the screenshots in `logs/` before anything goes to an employer.
+
+Leave the browser window alone while it runs (minimise it if you like). To stop a run, press
+Ctrl+C in Terminal; typing words there does nothing.
 
 When jobs are skipped with `needs_input`, the output lists the questions. Add a rule for
 each one to `answers.yaml`, then run `python3 -m autoapply retry` and `python3 -m autoapply auto`.

@@ -123,6 +123,31 @@ def cmd_log(store: Store):
     print("\nTotals:", store.counts())
 
 
+def cmd_check_key():
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        print("ANTHROPIC_API_KEY is not set in this Terminal window.\n"
+              "Add it with:  echo 'export ANTHROPIC_API_KEY=\"sk-ant-api03-...\"' >> ~/.zshrc && source ~/.zshrc")
+        return
+    print(f"ANTHROPIC_API_KEY is set: starts with {key.strip()[:12]}..., {len(key)} characters.")
+    for p in autofill.key_problems(key):
+        print(f"  Problem: {p}")
+    if os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+        print("  Note: ANTHROPIC_AUTH_TOKEN is also set; ANTHROPIC_API_KEY is the one used.")
+    answers_path = os.path.join(HERE, "answers.yaml")
+    answers = {}
+    if os.path.exists(answers_path):
+        with open(answers_path) as f:
+            answers = yaml.safe_load(f) or {}
+    problem = autofill.check_claude(answers)
+    if problem:
+        print(f"Not working: {problem}\n"
+              "Make a new key at https://console.anthropic.com/settings/keys, then in ~/.zshrc replace the\n"
+              "old `export ANTHROPIC_API_KEY=...` line with the new key, and run `source ~/.zshrc`.")
+    else:
+        print("Working: Claude will answer the questions answers.yaml doesn't cover.")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="autoapply")
     ap.add_argument("--config", default=os.path.join(HERE, "config.yaml"))
@@ -139,8 +164,11 @@ def main(argv=None):
         p.add_argument("--dry-run", action="store_true", help="fill forms but don't click Submit")
         p.add_argument("--headless", action="store_true", help="don't show the browser window")
     sub.add_parser("retry")
+    sub.add_parser("check-key", help="check that ANTHROPIC_API_KEY works")
     args = ap.parse_args(argv)
 
+    if args.cmd == "check-key":
+        return cmd_check_key()
     cfg = load_config(args.config)
     store = Store(os.path.join(HERE, cfg.get("db_path", "applications.db")))
     limit = getattr(args, "limit", None) or cfg["prefs"].get("daily_limit", 30)
