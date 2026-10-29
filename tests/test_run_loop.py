@@ -44,5 +44,5 @@ def test_run_survives_closed_browser(tmp_path, monkeypatch):
            "browser_profile_dir": str(tmp_path / "prof")}
     monkeypatch.setattr(autofill, "resume_text", lambda p: "resume")
     autofill.run(s, cfg, 30, False, True, str(tmp_path))
-    assert calls == ["0", "1", "2"]
+    assert calls == ["0", "0", "1", "2"]  # the closed job is tried once more in a new window
     assert s.counts() == {"failed": 1, "applied": 2}

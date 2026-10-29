@@ -82,8 +82,10 @@ def form_url(row) -> str:
     if row["source"] == "ashby":
         return row["url"].rstrip("/") + "/application"
     if row["source"] == "greenhouse":
+        # The embeddable form: the plain job page sends companies like Airbnb, Stripe and DoorDash
+        # to their own careers site, where the form is hidden in a frame or behind more clicks.
         token = row["key"].split(":")[1]
-        return f"https://job-boards.greenhouse.io/{token}/jobs/{row['job_id']}"
+        return f"https://job-boards.greenhouse.io/embed/job_app?for={token}&token={row['job_id']}"
     return row["apply_url"] or row["url"]
 
 

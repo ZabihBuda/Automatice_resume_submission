@@ -10,15 +10,22 @@ confirmed: false        # set to true after you've checked every answer below
 
 # Rules are tried first, top to bottom. `match` is a list of regular expressions
 # (case-insensitive) checked against the question text; the first rule that matches wins.
-# For dropdowns and radio buttons, `answer` is matched against the option text.
+# For dropdowns and radio buttons, `answer` is matched against the option text, and a
+# "decline" answer also picks options like "I don't wish to answer" or "Prefer not to say".
+# Put Yes and No in quotes ("Yes"), otherwise YAML reads them as true/false (the tool copes either way).
+# {first_name}, {current_company}, {location} etc. are filled in from the profile in config.yaml,
+# and {company} and {title} from the job.
+#
+# After a `git pull`, new rules added to answers.example.yaml are used automatically after
+# your own rules, so you don't need to copy them over.
 rules:
   # --- Work authorization: decide these two yourself. ---
   # Canadians on TN can usually answer the first one "Yes" (TN is granted at the border with
   # a job offer), but some employers mean "without any visa". Pick what you're comfortable with.
-  - match: ["legally authori[sz]ed to work", "authori[sz]ed to work in the (u\\.?s|united states)", "eligible to work in the (u\\.?s|united states)", "right to work"]
+  - match: ["legally authori[sz]ed to work", "(authori[sz]ed|eligible|legally able|permitted) to (legally )?work", "right to work"]
     answer: CHANGE_ME          # Yes / No
   # TN does not need H-1B sponsorship, but the employer does sign a TN support letter.
-  - match: ["require.*sponsor", "need.*sponsor", "sponsorship", "visa status", "h-?1b"]
+  - match: ["require.*sponsor", "need.*sponsor", "sponsorship", "immigration support", "visa status", "h-?1b"]
     answer: CHANGE_ME          # usually No for TN, or Yes if you want to be upfront
 
   # --- Location and logistics ---
@@ -26,23 +33,31 @@ rules:
     answer: "Yes"
   - match: ["commute", "work (from|in) (the|our) office", "hybrid", "on-?site", "in[- ]person"]
     answer: "Yes"
-  - match: ["^(current )?location", "^city", "where are you (currently )?(located|based)"]
+  - match: ["^(current )?location", "^city", "where are you (currently )?(located|based)", "where do you (intend|plan) to work", "from where do you (intend|plan) to work"]
     answer: "Toronto, Ontario, Canada"
-  - match: ["country"]
+  - match: ["^country", "country (of|where) (residence|you live)"]
     answer: "Canada"
   - match: ["start date", "when can you start", "earliest.*start", "notice period"]
     answer: "Two weeks after an offer"
-  - match: ["over (the age of )?18", "at least 18", "18 years"]
+  - match: ["over (the age of )?18", "at least 18", "18 years", "18\\+"]
     answer: "Yes"
+
+  # --- About you (filled in from config.yaml) ---
+  - match: ["preferred (first )?name"]
+    answer: "{first_name}"
+  - match: ["legal name", "full name"]
+    answer: "{first_name} {last_name}"
+  - match: ["(current|most recent) (\\(or most recent\\) )?(company|employer)"]
+    answer: "{current_company}"
 
   # --- About this application ---
   - match: ["how did you hear", "where did you (hear|find|learn)", "^source"]
     answer: "Company website"
-  - match: ["previously (been )?(employed|worked)", "worked (for|at) .* before", "former employee"]
+  - match: ["previously (been )?(employed|worked)", "worked (for|at) .* before", "former employee", "ever (been )?(employed|worked) (by|for|at)"]
     answer: "No"
   - match: ["referr?ed by", "referral", "know anyone"]
     answer: "No"
-  - match: ["non-?compete", "non-?solicit"]
+  - match: ["non-?compete", "non-?solicit", "agreement with a former employer"]
     answer: "No"
   - match: ["salary", "compensation expectation", "pay expectation", "desired pay"]
     answer: "Open to discussing; aligned with the posted range"
@@ -69,7 +84,7 @@ rules:
   # --- Voluntary US EEO questions. "Decline" answers are always allowed. ---
   - match: ["gender", "sex\\b"]
     answer: "Decline to self-identify"
-  - match: ["race", "ethnicity", "hispanic", "latino"]
+  - match: ["\\brace\\b", "ethnicit", "hispanic", "latin[ox]"]
     answer: "Decline to self-identify"
   - match: ["veteran"]
     answer: "I don't wish to answer"
