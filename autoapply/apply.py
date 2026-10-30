@@ -7,7 +7,10 @@ submitted without you.
 from __future__ import annotations
 
 import os
+import re
 from collections import deque
+
+import yaml
 
 from .db import Store
 
@@ -76,6 +79,25 @@ def prefill(page, source: str, profile: dict, resume_path: str) -> list[str]:
     return filled
 
 
+def greenhouse_token(row) -> str:
+    """The company's job-board id ("doordashusa"), which the job key doesn't hold (it has "DoorDash")."""
+    m = re.search(r"greenhouse\.io/([\w-]+)/jobs/", row["url"] or "")
+    if m:
+        return m.group(1)
+    company = row["key"].split(":")[1]
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "companies.yaml")
+    try:
+        with open(path) as f:
+            boards = yaml.safe_load(f)
+        boards = boards.get("companies", boards) if isinstance(boards, dict) else boards
+        for c in boards:
+            if c.get("ats") == "greenhouse" and company in (c.get("name"), c.get("token")):
+                return c["token"]
+    except (OSError, AttributeError, TypeError):
+        pass
+    return company
+
+
 def form_url(row) -> str:
     if row["source"] == "lever":
         return row["apply_url"] or row["url"].rstrip("/") + "/apply"
@@ -84,8 +106,7 @@ def form_url(row) -> str:
     if row["source"] == "greenhouse":
         # The embeddable form: the plain job page sends companies like Airbnb, Stripe and DoorDash
         # to their own careers site, where the form is hidden in a frame or behind more clicks.
-        token = row["key"].split(":")[1]
-        return f"https://job-boards.greenhouse.io/embed/job_app?for={token}&token={row['job_id']}"
+        return f"https://job-boards.greenhouse.io/embed/job_app?for={greenhouse_token(row)}&token={row['job_id']}"
     return row["apply_url"] or row["url"]
 
 

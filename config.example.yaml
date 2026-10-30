@@ -12,12 +12,15 @@ profile:
   location: "City, State"
   postal_code: ""          # for "What's your zip / postal code?"
   current_title: ""        # current or most recent job title
+  current_start_month: ""  # when you started it, e.g. May
+  current_start_year: ""   # e.g. 2024
   # Highest degree, for the education section some forms have.
   school: ""
   school_other_name: ""    # e.g. the university, if school is a faculty within it
   degree: ""               # e.g. Master's Degree
   degree_other_name: ""    # another wording, e.g. Master's
   discipline: ""
+  graduation_month: ""     # e.g. June
   graduation_year: ""
   city: ""
   resume_path: ~/Documents/resume.pdf
