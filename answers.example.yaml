@@ -17,6 +17,9 @@ confirmed: false        # set to true after you've checked every answer below
 # Put Yes and No in quotes ("Yes"), otherwise YAML reads them as true/false (the tool copes either way).
 # {first_name}, {current_company}, {location} etc. are filled in from the profile in config.yaml,
 # and {company} and {title} from the job.
+# `section` limits a rule to one part of the form (by its heading), for labels like
+# "Start date month" that mean different things under Employment and Education.
+# When a rule's answer isn't one of a dropdown's choices, the next matching rule is tried.
 #
 # After a `git pull`, new rules added to answers.example.yaml are used automatically after
 # your own rules, so you don't need to copy them over.
@@ -37,6 +40,8 @@ rules:
     answer: "Yes"
   - match: ["^(current )?location", "^city", "where are you (currently )?(located|based)", "where do you (intend|plan) to work", "from where do you (intend|plan) to work"]
     answer: "Toronto, Ontario, Canada"
+  - match: ["^(current )?location", "^city"]
+    answer: ["{location}", "{city}"]
   - match: ["^country", "country (of|where) (residence|you live)"]
     answer: "Canada"
   - match: ["^start date\\W*$", "when can you start", "earliest.*start", "available to start", "notice period"]
@@ -58,14 +63,37 @@ rules:
   - match: ["postal code", "zip ?code", "postcode"]
     answer: "{postal_code}"      # add postal_code: "..." under profile in config.yaml
 
+  # --- Employment section (filled in from the profile in config.yaml) ---
+  - section: "employment|experience|work history"
+    match: ["^company( name)?\\W*$", "^employer"]
+    answer: "{current_company}"
+  - section: "employment|experience|work history"
+    match: ["^(job )?title\\W*$", "^(role|position)\\W*$"]
+    answer: "{current_title}"
+  - section: "employment|experience|work history"
+    match: ["start date month", "^start month"]
+    answer: "{current_start_month}"
+  - section: "employment|experience|work history"
+    match: ["start date year", "^start year"]
+    answer: "{current_start_year}"
+  - section: "employment|experience|work history"
+    match: ["current role", "currently work here", "i currently work", "current job"]
+    answer: ["Current role", "I currently work here", "Currently work here", "Current job", "Yes"]
+
   # --- Education (filled in from the profile in config.yaml) ---
+  - section: "education"
+    match: ["end date month", "graduation month"]
+    answer: "{graduation_month}"
+  - section: "education"
+    match: ["end date year"]
+    answer: "{graduation_year}"
   - match: ["^(name of )?(school|university|college|institution)\\b"]
     answer: ["{school}", "{school_other_name}"]
   - match: ["^degree"]
     answer: ["{degree}", "{degree_other_name}"]
   - match: ["^discipline", "field of study", "^major\\b", "area of study"]
     answer: "{discipline}"
-  - match: ["end date year", "graduation year", "year of graduation", "year graduated"]
+  - match: ["graduation year", "year of graduation", "year graduated"]
     answer: "{graduation_year}"
   - match: ["\\bph\\.?d\\b", "doctorate", "doctoral"]
     answer: "No"
@@ -74,7 +102,8 @@ rules:
 
   # --- About this application ---
   - match: ["how did you (hear|find|learn)", "where did you (hear|find|learn)", "where have you (heard|learned|learnt|found)", "^source"]
-    answer: ["Company website", "Company careers", "Careers page", "Career site", "Careers", "Website", "Job board", "Online", "Internet", "Other"]
+    answer: ["Company website", "{company} website", "{company} careers", "Company careers", "Careers page", "Career site", "Careers",
+             "Website", "Job board", "Online job board", "Online", "Internet", "Search engine", "Other"]
   - match: ["previously,? (been )?(employed|worked)", "worked (for|at) .* before", "former employee", "ever (been )?(employed|worked) (by|for|at)",
             "(currently|previously),? (or have you previously,? )?work(ed)? (for|at)"]
     answer: "No"
@@ -82,7 +111,7 @@ rules:
     answer: "No"
   - match: ["conflict of interest", "significant financial interest"]
     answer: "No"
-  - match: ["referr?ed by", "referral", "know anyone"]
+  - match: ["referr?ed by", "referral", "know anyone", "were you referred", "referred to this (position|role|job)"]
     answer: "No"
   - match: ["non-?compete", "non-?solicit", "agreement with a former employer"]
     answer: "No"

@@ -220,7 +220,6 @@ def test_questions_from_the_first_real_run():
         "Are you comfortable with the salary range posted for this position?*": "Yes",
         "Where have you learned about Samsara? Select all that apply.*": "Company website",
         "When can you start a new role?": "Two weeks after an offer",
-        "End date year*": "2024",
         "School*": "State University",
         "Degree*": "Master's Degree",
         "Are you a current government official or were you a government official in the last five years?*": "No",
@@ -236,6 +235,7 @@ def test_questions_from_the_first_real_run():
     }
     for q, want in expect.items():
         assert autofill.rule_answer(q, a, v) == want, q
+    assert autofill.rule_answer("End date year*", a, v, section="Education") == "2024"
     # Education dates other than the year are left for you to answer.
     assert autofill.rule_answer("Start date month*", a, v) is None
     assert autofill.rule_answer("End date month*", a, v) is None
@@ -296,3 +296,60 @@ def test_unmatched_dropdown_lists_its_choices(page, monkeypatch):
     [q] = log["missing_detail"]
     assert q["label"].startswith("Are you a veteran")
     assert [o["text"] for o in q["options"]] == ["I am a veteran", "I am not a veteran", "I don't wish to answer"]
+
+
+def test_section_rules_and_fallthrough():
+    a = answers()
+    # An older answers.yaml in front: its single answers no longer hide the better defaults.
+    a["rules"] = [{"match": ["start date", "when can you start"], "answer": "Two weeks after an offer"},
+                  {"match": ["salary"], "answer": "Open to discussing"}] + a["rules"]
+    v = {"current_company": "Initech", "current_title": "Analyst", "current_start_month": "May",
+         "graduation_month": "June", "graduation_year": "2024", "company": "Acme"}
+    ra = autofill.rule_answers
+    assert ra("Start date month*", a, v, section="Employment") == ["May"]
+    assert ra("Start date year*", a, v, section="Employment") == []  # not "Two weeks after an offer"
+    assert ra("End date month*", a, v, section="Education") == ["June"]
+    assert ra("Company name*", a, v, section="Employment") == ["Initech"]
+    assert ra("Title*", a, v, section="Employment") == ["Analyst"]
+    assert "Yes" in ra("[Compensation] Do you accept the listed salary range for this position?*", a, v)
+    assert "Within 2 weeks" in ra("When can you start a new role?", a, v)
+    assert ra("To your knowledge, were you referred to this position by a senior leader?*", a, v) == ["No"]
+    opts = [{"id": "1", "text": "Yes"}, {"id": "2", "text": "No"}]
+    cands = ra("Do you accept the listed salary range?*", a, v)
+    assert next(o for o in (autofill.pick_option(c, opts) for c in cands) if o)["text"] == "Yes"
+
+
+def test_greenhouse_token_from_board_url():
+    from autoapply.apply import greenhouse_token
+    row = {"url": "https://job-boards.greenhouse.io/doordashusa/jobs/7467955", "key": "greenhouse:DoorDash:7467955"}
+    assert greenhouse_token(row) == "doordashusa"
+    row = {"url": "https://careers.airbnb.com/positions/1?gh_jid=1", "key": "greenhouse:Airbnb:1"}
+    assert greenhouse_token(row) == "airbnb"  # from companies.yaml
+
+
+def test_city_dropdown_is_searched_by_city(page):
+    """Async city lists word places their own way; search by the city and take its match."""
+    page.set_content("""
+      <label for=loc>Location (City)*</label><input id=loc role=combobox>
+      <div id=menu></div>
+      <script>
+        const places = ['Toronto, ON, Canada', 'Toronto, OH, United States'];
+        loc.addEventListener('input', () => setTimeout(() => {
+          const q = loc.value.toLowerCase();
+          menu.innerHTML = places.filter(p => p.toLowerCase().startsWith(q))
+            .map(p => `<div role=option onclick="loc.value=this.innerText;menu.innerHTML=''">${p}</div>`).join('');
+        }, 300));
+      </script>""")
+    q = {"id": "x", "kind": "combobox", "label": "Location (City)*", "options": []}
+    page.eval_on_selector("#loc", "e => e.setAttribute('data-aa', 'x')")
+    assert autofill.set_field(page, q, "Toronto, Ontario, Canada")
+    assert page.input_value("#loc") == "Toronto, ON, Canada"
+
+
+def test_fields_know_their_section(page):
+    page.set_content("""<h2>Apply</h2><h3>Employment</h3>
+      <label for=a>End date month*</label><select id=a required><option value=''>Select</option><option>May</option></select>
+      <h3>Education</h3>
+      <label for=b>End date month*</label><select id=b required><option value=''>Select</option><option>June</option></select>""")
+    got = {(q["label"], q["section"]) for q in page.evaluate(autofill.COLLECT_JS)}
+    assert got == {("End date month*", "Employment"), ("End date month*", "Education")}

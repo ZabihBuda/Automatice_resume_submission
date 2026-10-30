@@ -50,6 +50,10 @@ COLLECT_JS = r"""
     const l = b && b.querySelector('legend, [class*=label]:not(input), [class*=title], label');
     return clean(l ? l.innerText : '');
   };
+  // The heading above a field ("Employment", "Education"), to tell apart fields with the same label.
+  const heads = Array.from(document.querySelectorAll('h1, h2, h3, h4'));
+  const sectionOf = el => { let s = ''; for (const h of heads) {
+    if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) s = clean(h.innerText); else break; } return s; };
   const req = (el, label) => el.required || el.getAttribute('aria-required') === 'true' || /\*\s*$|\*\s*\(|\(required\)/i.test(label);
   let n = 0, gid = 0; const out = []; const groups = {}; const boxIds = new Map();
   for (const el of document.querySelectorAll('input, textarea, select, [role=combobox]')) {
@@ -60,7 +64,7 @@ COLLECT_JS = r"""
       const b = box(el);
       if (b && !boxIds.has(b)) boxIds.set(b, 'g' + (gid++));
       const key = el.name || (b ? boxIds.get(b) : 'n' + n);
-      if (!groups[key]) { groups[key] = { id: 'grp' + out.length, kind: type, label: groupLabel(el), options: [], required: false, answered: false }; out.push(groups[key]); }
+      if (!groups[key]) { groups[key] = { id: 'grp' + out.length, kind: type, label: groupLabel(el), section: sectionOf(el), options: [], required: false, answered: false }; out.push(groups[key]); }
       const g = groups[key]; const id = 'aa' + (n++); el.setAttribute('data-aa', id);
       const optLabel = clean((el.labels && el.labels[0] && el.labels[0].innerText) || el.getAttribute('aria-label') || el.value);
       g.options.push({ id, text: optLabel }); g.required = g.required || req(el, g.label);
@@ -73,7 +77,7 @@ COLLECT_JS = r"""
     const id = 'aa' + (n++); el.setAttribute('data-aa', id);
     const label = labelOf(el);
     const f = { id, kind: el.getAttribute('role') === 'combobox' ? 'combobox' : (tag === 'select' ? 'select' : (tag === 'textarea' ? 'textarea' : 'text')),
-                label, required: req(el, label), answered: false, options: [] };
+                label, section: sectionOf(el), required: req(el, label), answered: false, options: [] };
     if (tag === 'select') { f.options = Array.from(el.options).filter(o => o.value).map(o => ({ id, text: clean(o.text) })); f.answered = !!el.value; }
     else if (f.kind === 'combobox') { const sv = box(el) && box(el).querySelector('[class*=single-value], [class*=singleValue]'); f.answered = !!(sv && clean(sv.innerText)) || !!el.value; }
     else f.answered = !!el.value;
@@ -86,7 +90,7 @@ COLLECT_JS = r"""
     if (btns.length < 2 || btns.length > 6) continue;
     const label = clean((c.querySelector('legend, label, [class*=label], [class*=title]') || {}).innerText || '');
     if (!label) continue;
-    const g = { id: 'grp' + out.length, kind: 'buttons', label, options: [], required: /\*/.test(label), answered: btns.some(b => b.getAttribute('aria-pressed') === 'true' || /active|selected/i.test(b.className)) };
+    const g = { id: 'grp' + out.length, kind: 'buttons', label, section: sectionOf(c), options: [], required: /\*/.test(label), answered: btns.some(b => b.getAttribute('aria-pressed') === 'true' || /active|selected/i.test(b.className)) };
     for (const b of btns) { const id = 'aa' + (n++); b.setAttribute('data-aa', id); g.options.push({ id, text: clean(b.innerText) }); }
     out.push(g);
   }
@@ -263,33 +267,42 @@ def default_rules(own: list[dict]) -> list[dict]:
     return out
 
 
-def rule_answers(label: str, answers: dict, job: dict | None = None, use_llm: bool = False) -> list[str]:
-    """The first matching rule's answers, best first. {name} placeholders are filled from `job`
-    (the job plus your profile); an answer whose placeholder has no value is left out."""
+def rule_answers(label: str, answers: dict, job: dict | None = None, use_llm: bool = False,
+                 section: str = "") -> list[str]:
+    """Answers from every rule that matches, best first: rules for this part of the form
+    (`section:`, e.g. Employment), then your saved and own rules, then the defaults. A text box
+    uses the first; a dropdown the first that is one of its choices. {name} placeholders are filled
+    from `job` (the job plus your profile); an answer whose placeholder has no value is left out."""
     values = {k: str(v).strip() for k, v in (job or {}).items() if v is not None}
     key = norm_question(label)
-    for r in answers.get("rules", []):
+    rules = answers.get("rules", [])
+    ordered = [r for r in rules if r.get("section")] + [r for r in rules if not r.get("section")]
+    out, section_hit = [], False
+    for r in ordered:
         if use_llm and r.get("only_without_claude"):
+            continue
+        if r.get("section") and not re.search(r["section"], section or "", re.I):
             continue
         if not (r.get("exact") == key or any(re.search(p, label, re.I) for p in r.get("match", []))):
             continue
-        out = []
+        if section_hit and not r.get("section"):
+            break  # a section rule decided it; general rules ("start date") mean something else here
+        section_hit = section_hit or bool(r.get("section"))
         for text in (r["answer"] if isinstance(r["answer"], list) else _answers_of(r)):
             keys = re.findall(r"\{(\w+)\}", text)
             if any(not values.get(k) for k in keys):
                 continue
             for k in keys:
                 text = text.replace("{" + k + "}", values[k])
-            if text.strip():
+            if text.strip() and text not in out:
                 out.append(text)
-        if out:
-            return out
-    return []
+    return out
 
 
-def rule_answer(label: str, answers: dict, job: dict | None = None, use_llm: bool = False) -> str | None:
-    """First matching rule's best answer."""
-    out = rule_answers(label, answers, job, use_llm)
+def rule_answer(label: str, answers: dict, job: dict | None = None, use_llm: bool = False,
+                section: str = "") -> str | None:
+    """The best answer from the matching rules."""
+    out = rule_answers(label, answers, job, use_llm, section)
     return out[0] if out else None
 
 
@@ -470,14 +483,20 @@ def set_combobox(page, box, answer: str) -> bool:
     picks the best option; if it isn't listed, types the answer to search for it."""
     texts = open_combobox(page, box)
     opt = pick_option(answer, [{"id": str(i), "text": t} for i, t in enumerate(texts)])
-    if not opt and answer != AGREE_ANSWER:
+    # Not listed: search for it. A place ("Toronto, Ontario, Canada") is searched by its first part,
+    # since city lists word it their own way ("Toronto, ON, Canada").
+    searches = [answer[:40]] + ([answer.split(",")[0].strip()] if "," in answer else [])
+    for term in (searches if not opt and answer != AGREE_ANSWER else []):
         try:
-            box.fill(answer[:40])
+            box.fill(term)
         except Exception:  # a <div role=combobox> can't be filled; type into it instead
-            page.keyboard.type(answer[:40])
-        page.wait_for_timeout(1200)  # some lists (cities) load from the server as you type
+            page.keyboard.type(term)
+        page.wait_for_timeout(2000)  # city lists load from the server as you type
         texts = page.evaluate(OPTIONS_JS)
-        opt = pick_option(answer, [{"id": str(i), "text": t} for i, t in enumerate(texts)])
+        opts = [{"id": str(i), "text": t} for i, t in enumerate(texts)]
+        opt = pick_option(answer, opts) or (pick_option(term, opts) if term != answer[:40] else None)
+        if opt:
+            break
     if not opt:
         try:
             box.fill("")
@@ -596,12 +615,13 @@ def apply_one(page, row, job: dict, cfg: dict, answers: dict, resume_pdf: str, r
                 continue
             if q["kind"] in ("select", "combobox", "radio", "buttons") and answer(q, AGREE_ANSWER):
                 continue
-        cands = rule_answers(q["label"], answers, values, use_llm)
+        sec = q.get("section", "")
+        cands = rule_answers(q["label"], answers, values, use_llm, sec)
         if not cands and q["kind"] == "combobox":
             q["options"] = combobox_choices(page, q)
         if not cands and q["options"]:
             # A vague question ("I identify as:") can still match by its options ("Hispanic or Latino").
-            cands = rule_answers(q["label"] + " " + " ".join(o["text"] for o in q["options"]), answers, values, use_llm)
+            cands = rule_answers(q["label"] + " " + " ".join(o["text"] for o in q["options"]), answers, values, use_llm, sec)
         if cands and q["kind"] in ("select", "combobox", "radio", "checkbox", "buttons"):
             q["tried"] = cands
         if not any(answer(q, c) for c in cands):
@@ -620,11 +640,15 @@ def apply_one(page, row, job: dict, cfg: dict, answers: dict, resume_pdf: str, r
             if q["id"] in ai and answer(q, ai[q["id"]]):
                 continue
             # Claude unavailable: fall back to the template answers meant for no-key mode.
-            fallback = [] if use_llm else rule_answers(q["label"], answers, values, False)
+            fallback = [] if use_llm else rule_answers(q["label"], answers, values, False, q.get("section", ""))
             if not any(answer(q, c) for c in fallback):
                 still.append(q)
         leftovers = still
 
+    if leftovers:
+        # Answering some fields closes others (ticking "Current role" disables the end date).
+        still_open = {(f["label"], f.get("section")) for f in page.evaluate(COLLECT_JS)}
+        leftovers = [q for q in leftovers if (q["label"], q.get("section")) in still_open]
     missing = [q["label"] for q in leftovers if q["required"]]
     log["unanswered"] = [q["label"] for q in leftovers]
     if missing:
