@@ -147,7 +147,9 @@ def test_bare_yes_and_new_default_rules(tmp_path):
     assert autofill.rule_answer("Do you now or in the future require immigration support?", a) == "No"
     assert autofill.rule_answer("Please select up to 2 ethnicities", a) == "Decline to self-identify"
     # A placeholder with no value is passed over rather than sent as "{current_company}".
-    assert autofill.rule_answer("Name of your current (or most recent) company", a, {"current_company": ""}) is None
+    assert autofill.rule_answer("What's your postal code? *", a, {"postal_code": ""}) is None
+    # ...and the next answer in the list is used instead.
+    assert autofill.rule_answer("School*", a, {"school": "", "school_other_name": "State U"}) == "State U"
     assert autofill.rule_answer("Preferred First Name", a, {"first_name": "Sam"}) == "Sam"
 
 
@@ -204,3 +206,93 @@ def test_key_problems():
     assert any("quote" in p for p in autofill.key_problems('"sk-ant-api03-abc"'))
     assert any("space" in p for p in autofill.key_problems("sk-ant-api03-abc\n"))
     assert any("sk-ant-api" in p for p in autofill.key_problems("abc"))
+
+
+def test_questions_from_the_first_real_run():
+    a = answers()
+    v = {"first_name": "Sam", "last_name": "Lee", "postal_code": "M5V 1A1", "graduation_year": "2024",
+         "school": "State University", "degree": "Master's Degree", "current_title": "Data Scientist"}
+    expect = {
+        "Preferred Last Name*": "Lee",
+        "What's your postal code? *": "M5V 1A1",
+        "What is the zip code of your primary residence?*": "M5V 1A1",
+        "[Compensation] Do you accept the listed salary range for this position?*": "Yes",
+        "Are you comfortable with the salary range posted for this position?*": "Yes",
+        "Where have you learned about Samsara? Select all that apply.*": "Company website",
+        "When can you start a new role?": "Two weeks after an offer",
+        "End date year*": "2024",
+        "School*": "State University",
+        "Degree*": "Master's Degree",
+        "Are you a current government official or were you a government official in the last five years?*": "No",
+        "Are you a close relative of a government official?*": "No",
+        "Do you hold a PhD in Economics or a closely related field?*": "No",
+        "Are you currently, or have you previously, worked for Instacart?*": "No",
+        "If so, are you eligible or currently in a period of Optional Practical Training (OPT)?*": "No",
+        "Are you willing and able to travel to customer sites approximately once every 4-8 weeks?*": "Yes",
+        "Do you opt-in to receive WhatsApp messages from Stripe Recruiting?*": "No",
+        "Which of the following best describes how you use AI tools today?*": "Advanced",
+        "How would you describe your racial/ethnic background? (mark all that apply)*": "Decline to self-identify",
+        "Current/Most Recent Job Title": "Data Scientist",
+    }
+    for q, want in expect.items():
+        assert autofill.rule_answer(q, a, v) == want, q
+    # Education dates other than the year are left for you to answer.
+    assert autofill.rule_answer("Start date month*", a, v) is None
+    assert autofill.rule_answer("End date month*", a, v) is None
+    assert autofill.CONSENT.search("Candidate AI Usage Attestation:*")
+    assert autofill.CONSENT.search("Processing of Personal Data*")
+
+
+def test_answer_list_tries_each_option():
+    opts = [{"id": "1", "text": "LinkedIn"}, {"id": "2", "text": "Careers Page"}]
+    cands = autofill.rule_answers("How did you hear about this job?", answers())
+    assert next(autofill.pick_option(c, opts) for c in cands if autofill.pick_option(c, opts))["id"] == "2"
+
+
+def test_unanswered_questions_are_saved_and_reused(tmp_path):
+    a_path = tmp_path / "answers.yaml"
+    a_path.write_text("confirmed: true\nrules: []\n")
+    u_path = tmp_path / autofill.UNANSWERED
+    qs = [{"label": "If you're less than 3 years out of school, what is your undergraduate GPA?*", "kind": "text", "options": []},
+          {"label": "Are you authorized to work in the country for which you applied? *", "kind": "combobox",
+           "options": [{"text": "Yes, I am authorized"}, {"text": "No"}], "tried": ["Yes, without a visa"]}]
+    assert autofill.record_unanswered(str(u_path), qs, "Duolingo") == 2
+    assert autofill.record_unanswered(str(u_path), qs[:1], "Other") == 0  # never listed twice
+    text = u_path.read_text()
+    assert "Yes, I am authorized" in text and "isn't one of the choices" in text and "tried Yes, without a visa" in text
+    # You fill in one answer; it is used for that exact question from then on.
+    text = text.replace("answer: ''", "answer: '3.4'", 1)
+    u_path.write_text(text)
+    a = autofill.load_answers(str(a_path))
+    assert autofill.rule_answer("If you're less than 3 years out of school, what is your undergraduate GPA? *", a) == "3.4"
+    assert autofill.rule_answer("Are you authorized to work in the country for which you applied?", a) != "3.4"
+
+
+def test_vague_question_matches_by_its_options(page, monkeypatch, tmp_path):
+    (tmp_path / "f.html").write_text(
+        "<form action='thanks.html'><input type=file id=resume>"
+        "<div class=field><label for=q1>I identify as:*</label><select id=q1 required><option value=''>Select</option>"
+        "<option>Hispanic or Latino</option><option>Not Hispanic or Latino</option><option>I don't wish to answer</option>"
+        "</select></div><button type=submit>Submit application</button></form>")
+    monkeypatch.setattr(autofill, "form_url", lambda r: f"file://{tmp_path}/f.html")
+    row = {"source": "greenhouse", "key": "greenhouse:acme:1", "job_id": "1"}
+    job = {"title": "Data Scientist", "company": "Acme", "location": "NY", "description": ""}
+    status, log = autofill.apply_one(page, row, job, {"profile": PROFILE}, answers(),
+                                     os.path.join(FORMS, "thanks.html"), "resume", False, True)
+    assert status == "dry_run", log
+    assert page.eval_on_selector("#q1", "e => e.value") == "I don't wish to answer"
+
+
+def test_unmatched_dropdown_lists_its_choices(page, monkeypatch):
+    """A react-select question with no rule is reported with its choices, for unanswered.yaml."""
+    a = answers()
+    a["rules"] = [r for r in a["rules"] if "veteran" not in r["match"]]
+    monkeypatch.setattr(autofill, "form_url", lambda r: f"file://{FORMS}/greenhouse_react.html")
+    row = {"source": "greenhouse", "key": "greenhouse:acme:1", "job_id": "1"}
+    job = {"title": "Data Scientist", "company": "Acme", "location": "NY", "description": ""}
+    status, log = autofill.apply_one(page, row, job, {"profile": dict(PROFILE, current_company="Initech")}, a,
+                                     os.path.join(FORMS, "thanks.html"), "resume", False, True)
+    assert status == "needs_input"
+    [q] = log["missing_detail"]
+    assert q["label"].startswith("Are you a veteran")
+    assert [o["text"] for o in q["options"]] == ["I am a veteran", "I am not a veteran", "I don't wish to answer"]

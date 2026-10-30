@@ -69,9 +69,10 @@ COLLECT_JS = r"""
       continue;
     }
     if (!vis(el) && el.getAttribute('role') !== 'combobox') continue;
+    if (tag !== 'input' && el.querySelector('input, select, textarea')) continue;  // the input inside is collected instead
     const id = 'aa' + (n++); el.setAttribute('data-aa', id);
     const label = labelOf(el);
-    const f = { id, kind: el.getAttribute('role') === 'combobox' && tag === 'input' ? 'combobox' : (tag === 'select' ? 'select' : (tag === 'textarea' ? 'textarea' : 'text')),
+    const f = { id, kind: el.getAttribute('role') === 'combobox' ? 'combobox' : (tag === 'select' ? 'select' : (tag === 'textarea' ? 'textarea' : 'text')),
                 label, required: req(el, label), answered: false, options: [] };
     if (tag === 'select') { f.options = Array.from(el.options).filter(o => o.value).map(o => ({ id, text: clean(o.text) })); f.answered = !!el.value; }
     else if (f.kind === 'combobox') { const sv = box(el) && box(el).querySelector('[class*=single-value], [class*=singleValue]'); f.answered = !!(sv && clean(sv.innerText)) || !!el.value; }
@@ -110,7 +111,8 @@ BANNER_JS = r"""
 })();
 """
 
-CONSENT = re.compile(r"\b(i agree|i acknowledge|i consent|i certify|i have read|privacy (policy|notice)|review and acknowledge"
+CONSENT = re.compile(r"\b(i agree|i acknowledge|i consent|i certify|i have read|i understand|privacy (policy|notice|acknowledge?ment)"
+                     r"|review and acknowledge|acknowledge?ment|confirm receipt|attestation|i attest|ai (usage|policy)|personal data"
                      r"|terms (and conditions|of (use|service)))\b", re.I)
 CONFIRM = re.compile(
     r"thank(s| you) for (applying|your (application|interest))|application (has been |was )?(submitted|received)"
@@ -156,7 +158,20 @@ EXAMPLE_ANSWERS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(_
 
 def _as_text(v) -> str:
     # YAML reads a bare yes/no as true/false; forms want "Yes"/"No".
-    return {True: "Yes", False: "No"}.get(v, v) if isinstance(v, bool) else str(v)
+    return {True: "Yes", False: "No"}.get(v, v) if isinstance(v, bool) else ("" if v is None else str(v))
+
+
+def _answers_of(r: dict) -> list[str]:
+    v = r.get("answer", "")
+    return [_as_text(x) for x in (v if isinstance(v, list) else [v])]
+
+
+def _unfilled(r: dict) -> bool:
+    return any(x.strip().upper() == "CHANGE_ME" for x in r["answer"])
+
+
+def norm_question(label: str) -> str:
+    return re.sub(r"[\s*:?]+$", "", re.sub(r"\s+", " ", label)).strip().lower()
 
 
 def load_answers(path: str) -> dict:
@@ -166,16 +181,67 @@ def load_answers(path: str) -> dict:
         a = yaml.safe_load(f)
     rules = a.get("rules") or []
     for r in rules:
-        r["answer"] = _as_text(r.get("answer", ""))
+        r["answer"] = _answers_of(r)
     # Only real answers count; the word also appears in the file's comments.
-    unfilled = [r["match"][0] for r in rules if r["answer"].strip().upper() == "CHANGE_ME"]
+    unfilled = [r["match"][0] for r in rules if _unfilled(r)]
     if unfilled:
         raise SystemExit(f"{path} still has CHANGE_ME answers for: {', '.join(unfilled)}. "
                          "Fill them in before auto-submitting.")
     if not a.get("confirmed"):
         raise SystemExit(f"Set `confirmed: true` in {path} once every answer is correct for you.")
-    a["rules"] = rules + default_rules(rules)
+    a["rules"] = saved_answers(os.path.join(os.path.dirname(os.path.abspath(path)), UNANSWERED)) + rules + default_rules(rules)
     return a
+
+
+UNANSWERED = "unanswered.yaml"
+UNANSWERED_HEADER = """\
+# Questions the tool couldn't answer on its own. Type your answer after `answer:` (in quotes),
+# save, and every later application that asks the same question uses it.
+# For a question with `choices`, copy the choice you want. Leave an answer empty to keep
+# skipping jobs that ask it. Then run:  python3 -m autoapply retry && python3 -m autoapply auto
+"""
+
+
+def saved_answers(path: str) -> list[dict]:
+    """Your answers from unanswered.yaml, as rules that match that exact question."""
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        items = yaml.safe_load(f) or []
+    out = []
+    for it in items:
+        ans = [x for x in _answers_of(it) if x.strip()]
+        if it.get("question") and ans:
+            out.append({"exact": norm_question(it["question"]), "match": [], "answer": ans})
+    return out
+
+
+def record_unanswered(path: str, questions: list[dict], company: str) -> int:
+    """Add questions not already in unanswered.yaml. Returns how many were new."""
+    items = []
+    if os.path.exists(path):
+        with open(path) as f:
+            items = yaml.safe_load(f) or []
+    known = {norm_question(it.get("question", "")) for it in items}
+    new = []
+    for q in questions:
+        key = norm_question(q["label"])
+        if key in known:
+            continue
+        known.add(key)
+        it = {"question": re.sub(r"[\s*]+$", "", q["label"]).strip(), "asked_by": company}
+        choices = [o["text"] for o in q.get("options", []) if o.get("text")][:40]
+        if choices:
+            it["choices"] = choices
+        if q.get("tried"):
+            it["note"] = "tried " + " / ".join(q["tried"][:3]) + ", but that isn't one of the choices"
+        it["answer"] = ""
+        new.append(it)
+    if new:
+        with open(path, "w") as f:
+            f.write(UNANSWERED_HEADER + "\n")
+            yaml.safe_dump(items + new, f, sort_keys=False, allow_unicode=True, width=100)
+    return len(new)
 
 
 def default_rules(own: list[dict]) -> list[dict]:
@@ -188,8 +254,8 @@ def default_rules(own: list[dict]) -> list[dict]:
     mine = {r["match"][0]: r["answer"] for r in own if r.get("match")}
     out = []
     for r in example:
-        r["answer"] = _as_text(r.get("answer", ""))
-        if r["answer"].strip().upper() == "CHANGE_ME":
+        r["answer"] = _answers_of(r)
+        if _unfilled(r):
             if r["match"][0] not in mine:
                 continue
             r["answer"] = mine[r["match"][0]]
@@ -197,29 +263,41 @@ def default_rules(own: list[dict]) -> list[dict]:
     return out
 
 
-def rule_answer(label: str, answers: dict, job: dict | None = None, use_llm: bool = False) -> str | None:
-    """First matching rule's answer. {name} placeholders are filled from `job` (the job plus your
-    profile); a rule whose placeholder has no value is passed over."""
+def rule_answers(label: str, answers: dict, job: dict | None = None, use_llm: bool = False) -> list[str]:
+    """The first matching rule's answers, best first. {name} placeholders are filled from `job`
+    (the job plus your profile); an answer whose placeholder has no value is left out."""
+    values = {k: str(v).strip() for k, v in (job or {}).items() if v is not None}
+    key = norm_question(label)
     for r in answers.get("rules", []):
         if use_llm and r.get("only_without_claude"):
             continue
-        if any(re.search(p, label, re.I) for p in r["match"]):
-            text = str(r["answer"])
-            if "{" in text:
-                values = {k: str(v).strip() for k, v in (job or {}).items() if v is not None}
-                keys = re.findall(r"\{(\w+)\}", text)
-                if any(not values.get(k) for k in keys):
-                    continue
-                for k in keys:
-                    text = text.replace("{" + k + "}", values[k])
-            return text
-    return None
+        if not (r.get("exact") == key or any(re.search(p, label, re.I) for p in r.get("match", []))):
+            continue
+        out = []
+        for text in (r["answer"] if isinstance(r["answer"], list) else _answers_of(r)):
+            keys = re.findall(r"\{(\w+)\}", text)
+            if any(not values.get(k) for k in keys):
+                continue
+            for k in keys:
+                text = text.replace("{" + k + "}", values[k])
+            if text.strip():
+                out.append(text)
+        if out:
+            return out
+    return []
+
+
+def rule_answer(label: str, answers: dict, job: dict | None = None, use_llm: bool = False) -> str | None:
+    """First matching rule's best answer."""
+    out = rule_answers(label, answers, job, use_llm)
+    return out[0] if out else None
 
 
 DECLINE = re.compile(r"decline|prefer not|not to (say|answer|disclose|self)|(don'?t|do not) (wish|want) to (answer|say|disclose)"
                      r"|choose not|rather not|not (wish|want) to (answer|disclose)", re.I)
 AGREE_ANSWER = "(agree)"  # picks whichever option says yes / I agree / I acknowledge
-AGREE = re.compile(r"^(yes|i agree|agree|i acknowledge|acknowledged?|i accept|accept|i consent|i understand|i confirm)\b", re.I)
+AGREE = re.compile(r"^(yes|i agree|agree|i acknowledge|acknowledged?|i accept|accept|i consent|i understand|understood"
+                   r"|i confirm|confirmed|i attest|i certify|i have read|i will comply)\b", re.I)
 
 
 def pick_option(answer: str, options: list[dict]) -> dict | None:
@@ -365,9 +443,8 @@ def set_field(page, q: dict, answer: str) -> bool:
         return False
 
 
-def set_combobox(page, box, answer: str) -> bool:
-    """Searchable dropdowns (react-select on Greenhouse, Ashby, Lever location). Opens the list and
-    picks the best option; if it isn't listed, types the answer to search for it."""
+def open_combobox(page, box) -> list[str]:
+    """Open a searchable dropdown and return its option texts (tagged with data-aa-opt)."""
     box.click()
     page.wait_for_timeout(500)
     texts = page.evaluate(OPTIONS_JS)
@@ -375,9 +452,29 @@ def set_combobox(page, box, answer: str) -> bool:
         box.press("ArrowDown")
         page.wait_for_timeout(400)
         texts = page.evaluate(OPTIONS_JS)
+    return texts
+
+
+def combobox_choices(page, q: dict) -> list[dict]:
+    """The options of a dropdown whose question didn't match a rule, so its options can."""
+    try:
+        texts = open_combobox(page, page.locator(f"[data-aa='{q['id']}']").first)
+        page.keyboard.press("Escape")
+        return [{"id": q["id"], "text": t} for t in texts[:60]]
+    except Exception:
+        return []
+
+
+def set_combobox(page, box, answer: str) -> bool:
+    """Searchable dropdowns (react-select on Greenhouse, Ashby, Lever location). Opens the list and
+    picks the best option; if it isn't listed, types the answer to search for it."""
+    texts = open_combobox(page, box)
     opt = pick_option(answer, [{"id": str(i), "text": t} for i, t in enumerate(texts)])
     if not opt and answer != AGREE_ANSWER:
-        box.fill(answer[:40])
+        try:
+            box.fill(answer[:40])
+        except Exception:  # a <div role=combobox> can't be filled; type into it instead
+            page.keyboard.type(answer[:40])
         page.wait_for_timeout(1200)  # some lists (cities) load from the server as you type
         texts = page.evaluate(OPTIONS_JS)
         opt = pick_option(answer, [{"id": str(i), "text": t} for i, t in enumerate(texts)])
@@ -457,7 +554,7 @@ def open_form(page, row) -> bool:
             page.wait_for_timeout(2000)
             break
     try:
-        page.wait_for_selector("input[type=file]", state="attached", timeout=10000)
+        page.wait_for_selector("input[type=file]", state="attached", timeout=15000)
         return True
     except Exception:
         pass
@@ -474,7 +571,7 @@ def open_form(page, row) -> bool:
 def apply_one(page, row, job: dict, cfg: dict, answers: dict, resume_pdf: str, resume_txt: str,
               use_llm: bool, dry_run: bool) -> tuple[str, dict]:
     if not open_form(page, row):
-        return "failed", {"error": "no application form on the page (the job may have closed)"}
+        return "failed", {"error": f"no application form on the page (the job may have closed): {page.url}"}
     if captcha_visible(page):
         return "captcha", {}
     filled = prefill(page, row["source"], cfg["profile"], resume_pdf)
@@ -499,8 +596,15 @@ def apply_one(page, row, job: dict, cfg: dict, answers: dict, resume_pdf: str, r
                 continue
             if q["kind"] in ("select", "combobox", "radio", "buttons") and answer(q, AGREE_ANSWER):
                 continue
-        ans = rule_answer(q["label"], answers, values, use_llm)
-        if not (ans is not None and answer(q, ans)):
+        cands = rule_answers(q["label"], answers, values, use_llm)
+        if not cands and q["kind"] == "combobox":
+            q["options"] = combobox_choices(page, q)
+        if not cands and q["options"]:
+            # A vague question ("I identify as:") can still match by its options ("Hispanic or Latino").
+            cands = rule_answers(q["label"] + " " + " ".join(o["text"] for o in q["options"]), answers, values, use_llm)
+        if cands and q["kind"] in ("select", "combobox", "radio", "checkbox", "buttons"):
+            q["tried"] = cands
+        if not any(answer(q, c) for c in cands):
             leftovers.append(q)
 
     if leftovers and use_llm:
@@ -516,8 +620,8 @@ def apply_one(page, row, job: dict, cfg: dict, answers: dict, resume_pdf: str, r
             if q["id"] in ai and answer(q, ai[q["id"]]):
                 continue
             # Claude unavailable: fall back to the template answers meant for no-key mode.
-            fallback = None if use_llm else rule_answer(q["label"], answers, values, False)
-            if not (fallback is not None and answer(q, fallback)):
+            fallback = [] if use_llm else rule_answers(q["label"], answers, values, False)
+            if not any(answer(q, c) for c in fallback):
                 still.append(q)
         leftovers = still
 
@@ -525,6 +629,8 @@ def apply_one(page, row, job: dict, cfg: dict, answers: dict, resume_pdf: str, r
     log["unanswered"] = [q["label"] for q in leftovers]
     if missing:
         log["missing_required"] = missing
+        log["missing_detail"] = [{k: q.get(k) for k in ("label", "kind", "options", "tried")}
+                                 for q in leftovers if q["required"]]
         return "needs_input", log
     if dry_run:
         return "dry_run", log
@@ -583,6 +689,8 @@ def run(store: Store, cfg: dict, limit: int, dry_run: bool, headless: bool, here
     shots = os.path.join(here, "logs", date.today().isoformat())
     os.makedirs(shots, exist_ok=True)
     totals = {}
+    unanswered_path = os.path.join(here, UNANSWERED)
+    new_questions = 0
     print(f"{'Dry run: filling but not submitting' if dry_run else 'Applying'} to {len(rows)} jobs...")
     print("The browser fills in every form by itself. You don't need to type or click anything in it.\n")
     banner = BANNER_JS.replace("MESSAGE", (
@@ -654,6 +762,7 @@ def run(store: Store, cfg: dict, limit: int, dry_run: bool, headless: bool, here
             print(f"    {msg}")
             for q in log.get("missing_required", []):
                 print(f"      no answer for: {q}")
+            new_questions += record_unanswered(unanswered_path, log.get("missing_detail", []), job["company"])
             if log.get("error"):
                 print(f"      {log['error']}")
             if not dry_run:  # a dry run never changes a job's status
@@ -667,5 +776,8 @@ def run(store: Store, cfg: dict, limit: int, dry_run: bool, headless: bool, here
         except Exception:
             pass
     print(f"\nDone: {totals}. Screenshots in {shots}")
-    if totals.get("needs_input"):
-        print("Add rules to answers.yaml for the questions listed above, then run `retry`.")
+    if new_questions:
+        print(f"\n{new_questions} new questions were saved to {unanswered_path}.\n"
+              "Answer them once there (open -e unanswered.yaml), then run:  python3 -m autoapply retry && python3 -m autoapply auto")
+    elif totals.get("needs_input"):
+        print(f"\nSome questions are still unanswered in {unanswered_path}. Fill them in, then run `retry`.")
